@@ -1,0 +1,28 @@
+Cкачайте последнюю версию python, node js, java
+
+Заполнить .env файл своими данными с сайта my.telegram.org (api development tools - create app) 
+
+Для установки на windows: 
+
+-> install-windows.bat
+
+Для установки на mac os:
+
+В файле update.sh заполнить путь в пустых кавычках на полный путь к файлу в папке templates\output.html
+Для этого зайдите в папку, потом нажмите на свойства этого файла, после чего скопируйте путь и в конец добавьте \output.html
+
+Правой кнопкой мыши по папке crop -> Открыть папку в терминале
+
+sudo npm i -g browser-sync
+
+sudo xattr -r -d com.apple.quarantine update.sh
+
+sudo chmod +x update.sh
+
+sudo xattr -r -d com.apple.quarantine ffmpeg
+
+chmod +x ffmpeg
+
+xattr -d com.apple.quarantine ./crop
+
+sudo chmod +x crop
