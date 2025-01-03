@@ -10,7 +10,7 @@ const FAKE_SS_DELAY = 100
 // const ALL_ACTIONS_MONITOR = 200
 // const DELAY_GREEN_BUTTON = 500
 // const FAKE_SS_DELAY = 300
-// :))
+// :) 
 
 console.error = function() {};
 
@@ -276,7 +276,7 @@ async function searchPosts() {
     for (const line of lines) {
       const url = `${baseUrl}${line}${searchUrl}${username}`;
       const newTab = window.open(url, '_blank');
-
+      /*
       newTab.addEventListener('DOMContentLoaded', () => {
         const observer = new MutationObserver((mutationsList, observer) => {
           const button = newTab.document.querySelector('.m-rounded.m-flex.m-space-between.g-btn');
@@ -288,6 +288,7 @@ async function searchPosts() {
 
         observer.observe(newTab.document.body, { childList: true, subtree: true });
       });
+      */
     }
   }
 }
@@ -2452,7 +2453,7 @@ async function pressBindFix(tab) {
               chrome.runtime.sendMessage({action: "blacklist", url, tabId: tab.id});
             }
             if (innerDiv.textContent.includes('Daily') || innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing') || innerDiv.textContent.includes('Attached')) {
-              await delay(60000);
+              await delay(20000);
             }
             else {
               return
