@@ -316,18 +316,18 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 })
  
 async function checkModels() {
-  
   async function outputElements(newTab) {
     const usernameElements = newTab.document.querySelectorAll('.g-user-username');
     const username = usernameElements.length >= 2 ? usernameElements[1].textContent : "-";
     let fanCountElement = newTab.document.querySelector('svg[data-icon-name="icon-follow"]');
     const fanCount = fanCountElement ? fanCountElement.nextElementSibling.textContent.trim() : 'closed Fans';
-    const currentMonthElement = newTab.document.querySelector('.vdatetime-calendar__current--month');
-    const currentMonth = currentMonthElement ? currentMonthElement.textContent : "-";
+    
     setTimeout(() => {
-    let firstActiveDay = newTab.document.querySelector('.vdatetime-calendar__month__day:not(.vdatetime-calendar__month__day--disabled)');
-    let firstActiveDayNumber = firstActiveDay ? firstActiveDay.querySelector('span span').textContent : '-';
-    chrome.runtime.sendMessage({ type: 'checkModelsResult', data: { username, currentMonth, firstActiveDayNumber, fanCount } });
+      const currentMonthElement = newTab.document.querySelector('.vdatetime-calendar__current--month');
+      const currentMonth = currentMonthElement ? currentMonthElement.textContent : "-";
+      let firstActiveDay = newTab.document.querySelector('.vdatetime-calendar__month__day:not(.vdatetime-calendar__month__day--disabled)');
+      let firstActiveDayNumber = firstActiveDay ? firstActiveDay.querySelector('span span').textContent : '-';
+      chrome.runtime.sendMessage({ type: 'checkModelsResult', data: { username, currentMonth, firstActiveDayNumber, fanCount } });
     }, 1000);
   }
 
@@ -356,45 +356,47 @@ async function checkModels() {
               if (subscribeButton && !dropdownButtonClicked && !dropdownButton && !subscribeButtonClicked) {
                 subscribeButtonClicked = true
                 setTimeout(() => {
-                subscribeButton.click();
-                setTimeout(() => {
-                  const newDropdownButton = newTab.document.querySelector('.btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size');
-                  if (newDropdownButton) {
-                    newDropdownButton.click();
-                    dropdownButtonClicked = true;
+                  subscribeButton.click();
+                  setTimeout(() => {
+                    const newDropdownButton = newTab.document.querySelector('.btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size');
+                    if (newDropdownButton) {
+                      newDropdownButton.click();
+                      dropdownButtonClicked = true;
 
-                    setTimeout(() => {
-                      const goToDateLabel = newTab.document.querySelector('label[for="filter-go-to-date"]');
-                      if (goToDateLabel) {
-                        goToDateLabel.click();
-                      }
+                      setTimeout(() => {
+                        const goToDateLabel = newTab.document.querySelector('label[for="filter-go-to-date"]');
+                        if (goToDateLabel) {
+                          goToDateLabel.click();
+                        }
 
-                      setTimeout(async () => {
-                        let days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
-                        days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
-
-                        while (days.length > 0) {
-                          const previousButton = newTab.document.querySelector('.vdatetime-calendar__navigation--previous');
-                          if (previousButton) {
-                            previousButton.click();
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                          }
-                          days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
+                        setTimeout(async () => {
+                          let days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
                           days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
-                        }
 
-                        const nextButton = newTab.document.querySelector('.vdatetime-calendar__navigation--next');
-                        if (nextButton) {
-                          nextButton.click();
-                          await outputElements(newTab)
-                          newTab.close()
-                          observer.disconnect();
-                        }
-                      }, 500);
-                    }, 3000);
-                  }
-                }, 9000);
-              }, 5000);
+                          while (days.length > 0) {
+                            const previousButton = newTab.document.querySelector('.vdatetime-calendar__navigation--previous');
+                            if (previousButton) {
+                              previousButton.click();
+                              await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+                            days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
+                            days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
+                          }
+
+                          const nextButton = newTab.document.querySelector('.vdatetime-calendar__navigation--next');
+                          if (nextButton) {
+                            nextButton.click();
+                            setTimeout(async () => {
+                              await outputElements(newTab);
+                              newTab.close();
+                              observer.disconnect();
+                            }, 500);
+                          }
+                        }, 500);
+                      }, 3000);
+                    }
+                  }, 9000);
+                }, 5000);
               }
 
               if (dropdownButton && !dropdownButtonClicked) {
@@ -415,7 +417,7 @@ async function checkModels() {
                         const previousButton = newTab.document.querySelector('.vdatetime-calendar__navigation--previous');
                         if (previousButton) {
                           previousButton.click();
-                          await new Promise(resolve => setTimeout(resolve, 500));
+                          await new Promise(resolve => setTimeout(resolve, 100));
                         }
                         days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
                         days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
@@ -423,14 +425,16 @@ async function checkModels() {
 
                       const nextButton = newTab.document.querySelector('.vdatetime-calendar__navigation--next');
                       if (nextButton) {
-                        nextButton.click()
-                        await outputElements(newTab)
-                        newTab.close()
-                        observer.disconnect();
+                        nextButton.click();
+                        setTimeout(async () => {
+                          await outputElements(newTab);
+                          newTab.close();
+                          observer.disconnect();
+                        }, 500);
                       }
                     }, 500);
                   }, 500);
-              }, 5000);
+                }, 5000);
               }
             }
           }
