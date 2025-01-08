@@ -119,7 +119,6 @@ function copyImageToClipboard(imgBase64, event) {
 async function copyVideoToClipboard(videoPath, event) {
     try {
 
-        // Add animation to show copy was successful
         var copyButton = event.target;
         copyButton.classList.add('animate');
         if (!copyButton.dataset.clickCount || copyButton.dataset.clickCount % 2 === 0) {
@@ -140,7 +139,7 @@ async function copyVideoToClipboard(videoPath, event) {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ path: videoPath }), // Путь к видео в теле запроса
+                    body: JSON.stringify({ path: videoPath }),
                 });
 
 
@@ -471,6 +470,40 @@ function saveHint(chatIdToUse, messageCount, hintType = 'personal') {
     });
 }
 
+function processContentLoader(button, messageData, client_id) {
+    const data = {
+        message_id: messageData.message_id,
+        sender_id: messageData.sender_id,
+        client_id: client_id,
+    };
+
+    fetch('/process_content_loader', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateActiveButton(button.dataset.number);
+            localStorage.setItem('activeButtonNumber', button.dataset.number);
+        }
+    })
+    .catch(error => console.error('Error processing message:', error));
+}
+
+function updateActiveButton(activeNumber) {
+    const buttons = document.querySelectorAll('.message-button');
+    buttons.forEach(button => {
+        if (button.dataset.number === activeNumber) {
+            button.classList.add('active');
+        } else {
+            button.classList.remove('active');
+        }
+    });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const setupModal = (config) => {
@@ -512,5 +545,8 @@ document.addEventListener('DOMContentLoaded', () => {
         closeBtn: document.getElementById('close-general-modal-btn'),
         inputField: document.getElementById('general-hint-input')
     });
+
+    const activeNumber = localStorage.getItem('activeButtonNumber') || '1';
+    updateActiveButton(activeNumber);
 });
 

@@ -1,0 +1,20 @@
+Для обновления на mac os:
+
+Правой кнопкой мыши по папке update -> Открыть папку в терминале
+
+xattr -d com.apple.quarantine ./upd
+
+sudo chmod +x upd
+
+./upd
+
+Для установки и запуска на windows: 
+
+Дабл клик по upd.exe (либо ./upd через powerShell)
+
+Чтобы скинуть историю обновлений (обновить заново с нуля), отредактируйте файл update.json:
+
+{
+  "last_commit": ""
+}
+

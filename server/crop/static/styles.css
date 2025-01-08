@@ -618,3 +618,43 @@ input[type="checkbox"] {
 .media-container.rotated-270 {
     transform-origin: center center;
 }
+
+.buttons-grid {
+  left:50px;
+  position: fixed;
+  display: flex;
+  flex-direction:row;
+  gap: 3px;
+  z-index: 1000;
+  font-family: 'Varela Round', sans-serif;
+  font-weight: bold;
+  color: #000000;
+}
+
+.message-button {
+  background-color: #fbdf56;
+  color: black;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+  text-align: center;
+  font-weight: bold;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 2px solid black;
+  transition: 0.3s all;
+}
+
+.message-button:hover {
+  background-color: #fffafa;
+  transition: 0.3s all;
+}
+
+.message-button.active {
+  background-color: #c3f57c;
+  transform: translateY(1px);
+}
