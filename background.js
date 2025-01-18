@@ -2456,8 +2456,162 @@ async function pressBindFix(tab) {
               let url = `https://onlyfans.com/my/collections/user-lists/blocked?search=${username}`;
               chrome.runtime.sendMessage({action: "blacklist", url, tabId: tab.id});
             }
-            if (innerDiv.textContent.includes('Daily') || innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing') || innerDiv.textContent.includes('Attached')) {
+            if (innerDiv.textContent.includes('Daily') || innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing')) {
               await delay(20000);
+            }
+            else if (innerDiv.textContent.includes('Attached')) {
+              let elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip');
+              let divs = document.querySelectorAll("#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div")
+              divs.forEach(function(div) {
+                elements.forEach(function(element) {
+                    if (div.contains(element)) {
+                        element.click();
+                    }
+                });
+              });
+              const mediaLink = document.querySelector('.media-file')?.getAttribute('href');
+              if (mediaLink) {
+
+                function simulateDragAndDrop(sourceElement, targetElement, file) {
+                  const dataTransfer = new DataTransfer();
+                  
+                  dataTransfer.items.add(file);
+  
+                  const dragStartEvent = new DragEvent('dragstart', {
+                      bubbles: true,
+                      cancelable: true,
+                      dataTransfer: dataTransfer
+                  });
+                  sourceElement.dispatchEvent(dragStartEvent);
+            
+                  setTimeout(() => {
+                      const dragOverEvent = new DragEvent('dragover', {
+                          bubbles: true,
+                          cancelable: true,
+                          dataTransfer: dataTransfer
+                      });
+                      targetElement.dispatchEvent(dragOverEvent);
+              
+                      setTimeout(() => {
+                          const dropEvent = new DragEvent('drop', {
+                              bubbles: true,
+                              cancelable: true,
+                              dataTransfer: dataTransfer
+                          });
+                          targetElement.dispatchEvent(dropEvent);
+              
+                          const dragEndEvent = new DragEvent('dragend', {
+                            bubbles: true,
+                            cancelable: true,
+                            dataTransfer: dataTransfer
+                        });
+                        sourceElement.dispatchEvent(dragEndEvent);
+                      }, 100); 
+                  }, 100);
+              }
+
+                async function handleImageUpload(imageUrl) {
+                  let fileType = 'image/png';
+                  let mediaElement;
+                
+                  if (imageUrl.includes('/media.') || imageUrl.includes('/image.')) {
+                    fileType = 'image/png';
+                    mediaElement = new Image();
+                  } else {
+                    const urlParts = imageUrl.split('/');
+                    const fileName = urlParts[urlParts.length - 1].split('?')[0];
+                    const fileExtension = fileName.split('.').pop().toLowerCase();
+                    
+                    if (fileExtension === 'gif') {
+                      fileType = 'image/gif';
+                      mediaElement = new Image();
+                    } else if (fileExtension === 'mp4') {
+                      fileType = 'video/mp4';
+                      mediaElement = document.createElement('video');
+                    } else {
+                      fileType = 'image/png';
+                      mediaElement = new Image();
+                    }
+                  }
+                
+                  mediaElement.crossOrigin = "anonymous";
+                  mediaElement.src = imageUrl;
+                  
+                  mediaElement.onload = mediaElement.onloadedmetadata = async function () {
+                      try {
+                
+                        const canvas = document.createElement('canvas');
+                        canvas.width = mediaElement.width || 800;
+                        canvas.height = mediaElement.height || 600;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(mediaElement, 0, 0);
+                        
+                        const blob = await new Promise(resolve => {
+                          canvas.toBlob(resolve, fileType);
+                        });
+                
+                        const extension = fileType.split('/')[1];
+                        const file = new File([blob], `media.${extension}`, { type: fileType });
+                        let mediaInserted = false;
+                
+                        await new Promise((resolve) => {
+                          const observer = new MutationObserver((mutationsList, observer) => {
+                            for (let mutation of mutationsList) {
+                              if (mutation.type === 'childList') {
+                                let el = document.querySelector(".b-make-post__media-wrapper");
+                                if (el && !mediaInserted) {
+                                  mediaInserted = true;
+                                  clearInterval(intervalId);
+                                  isUploading = false;
+                                  resolve();
+                                  observer.disconnect();
+                                }
+                              }
+                            }
+                          });
+                
+                          observer.observe(document.body, { childList: true, subtree: true });
+                
+                          let dragAttempts = 0;
+                
+                          const intervalId = setInterval(function () {
+                            let element = document.querySelector('.tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto');
+                            let el = document.querySelector(".b-make-post__media-wrapper");
+                
+                            if (element && !el && dragAttempts === 0 && !mediaInserted) {
+                              element.focus();
+                              simulateDragAndDrop(mediaElement, element, file);
+                              mediaInserted = true;
+                              dragAttempts++;
+                            }
+                
+                            setTimeout(function () {
+                              el = document.querySelector(".b-make-post__media-wrapper");
+                              if (el || dragAttempts >= 2) {
+                                mediaInserted = true;
+                                clearInterval(intervalId);
+                                isUploading = false;
+                                resolve();
+                                observer.disconnect();
+                              }
+                            }, 500);
+                          }, 200);
+                        });
+                      } catch (error) {
+                        console.error('Ошибка при обработке изображения:', error);
+                        isUploading = false;
+                      }
+                  };
+                  
+                  mediaElement.onerror = function(error) {
+                    console.error('Ошибка загрузки медиафайла:', error);
+                    isUploading = false;
+                  };
+                }
+                await handleImageUpload(mediaLink);
+            }
+            innerDiv.textContent = '';
+            await delay(5000);
             }
             else {
               return
