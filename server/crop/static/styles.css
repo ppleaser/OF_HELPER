@@ -658,3 +658,9 @@ input[type="checkbox"] {
   background-color: #c3f57c;
   transform: translateY(1px);
 }
+
+.main-container {
+  position: relative; 
+  display: flex; 
+  flex-direction: column;
+}

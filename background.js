@@ -25,6 +25,7 @@ let onlyFansOpenTabs = new Set();
 let closedTabIds = new Set();
 let closedTabsCount = 0; 
 let lastClosedTime = null; 
+let isStop = false;
 
 function updateTabCounterOnActiveTab(isReset) {
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
@@ -72,7 +73,7 @@ function updateTabCounterOnActiveTab(isReset) {
 
 
       let timeSinceLastClosed = "00:00";
-      let color = "green"; 
+      let color = "rgb(45, 155, 55)"; 
 
       if (isReset) {
           lastClosedTime = new Date();
@@ -88,11 +89,11 @@ function updateTabCounterOnActiveTab(isReset) {
           timeSinceLastClosed = `${minutes}:${seconds}`;
 
           if (diffSecs < 15) {
-              color = "#2D9B37";
+              color = "rgb(45, 155, 55)";
           } else if (diffSecs >= 15 && diffSecs < 30) {
               color = "yellow";
           } else {
-              color = "#DD6D55";
+              color = "rgb(221, 109, 85)";
 
               chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                   if (request.action === 'closeTab' && sender.tab) {
@@ -158,7 +159,7 @@ function updateTabCounterOnActiveTab(isReset) {
                 const activeTabId = activeTabs[0].id;
                 const tabId = tabs[0].id;
                 const tabUrl = tabs[0].url;
-                if (tabs.length >= 30 && tabUrl === "https://onlyfans.com/posts/create" && tabId != activeTabId) { 
+                if (tabs.length >= 20 && tabUrl === "https://onlyfans.com/posts/create" && tabId != activeTabId) { 
                     chrome.scripting.executeScript({
                         target: { tabId: tabId },
                         function: checkAndCloseTab
@@ -184,7 +185,7 @@ function updateTabCounterOnActiveTab(isReset) {
                       tabCounter = document.createElement("div");
                       tabCounter.id = 'tabCounter';
                       tabCounter.style.position = "fixed";
-                      tabCounter.style.bottom = "50px";
+                      tabCounter.style.bottom = "60px";
                       tabCounter.style.left = "20px";
                       tabCounter.style.fontFamily = "'Josefin Sans', sans-serif";
                       tabCounter.style.fontSize = '20px';
@@ -193,7 +194,7 @@ function updateTabCounterOnActiveTab(isReset) {
                       tabCounter.style.zIndex = "99999";
                       document.body.appendChild(tabCounter);
                   }
-                  tabCounter.style.color = color; // Устанавливаем цвет текста
+                  tabCounter.style.color = color;
                   tabCounter.textContent = `${count} / ${closedCount} / ${timeSinceClosed}`;
               };
 
@@ -1538,6 +1539,7 @@ async function checkDataFile() {
         browserType = "browser15"; }
 
       isApart = lastEntry.isApart
+      isDelete = lastEntry.isDelete
     }
 
       function validateDelete(answer) {
@@ -1851,20 +1853,57 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "21" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
+    
       chrome.storage.local.get(['savedTabId', 'deleteTabId'], async function(result) {
-          if (result.savedTabId) {
-              chrome.tabs.update(result.savedTabId, {active: true});
-              const fakeCheckedResult = await chrome.storage.sync.get('fakeChecked');
-              if (fakeCheckedResult.fakeChecked === true) {
-              chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
-                // Получаем все вкладки в текущем окне
-                const allTabs = currentWindow.tabs;
-                
-                // Находим текущую активную вкладку
-                const activeTab = allTabs.find((tab) => tab.active);
-            
-                if (activeTab) {
-                  // Применяем стили ко всем вкладкам начиная с текущей и дальше
+        if (result.savedTabId) {
+          chrome.tabs.update(result.savedTabId, { active: true }, async () => {
+            chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
+              const allTabs = currentWindow.tabs;
+              const activeTab = allTabs.find((tab) => tab.active);
+              
+              if (activeTab) {
+                if (isDelete) {
+                const tabsToClose = allTabs.filter(tab => tab.index > activeTab.index);
+    
+                for (const tab of tabsToClose) {
+                  // Нажимаем на левую часть кнопки #split-button1
+                  await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => {
+                      const button = document.querySelector('#split-button1');
+                      if (button) {
+                        // Эмулируем клик на левую часть кнопки
+                        const rect = button.getBoundingClientRect();
+                        const leftPartX = rect.left + 5; // Немного смещаемся вправо от левого края
+                        const leftPartY = rect.top + rect.height / 2; // Центр по вертикали
+                        
+                        button.dispatchEvent(new MouseEvent('click', {
+                          bubbles: true,
+                          cancelable: true,
+                          clientX: leftPartX,
+                          clientY: leftPartY
+                        }));
+                      }
+                    }
+                  });
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Закрываем вкладки после кликов
+                const tabIdsToClose = tabsToClose.map(tab => tab.id);
+                if (tabIdsToClose.length > 0) {
+                  chrome.tabs.remove(tabIdsToClose);
+                }
+    
+                // Выполняем дополнительный скрипт для активной вкладки, если нужно
+                await executeScriptIfValid(activeTab, {
+                  target: { tabId: activeTab.id },
+                  func: clearPosts,
+                });
+              }
+    
+                // Если включен fakeChecked, меняем цвета вкладок
+                const fakeCheckedResult = await chrome.storage.sync.get('fakeChecked');
+                if (fakeCheckedResult.fakeChecked === true) {
                   allTabs.forEach(async (tab) => {
                     if (tab.index >= activeTab.index) {
                       await new Promise(resolve => setTimeout(resolve, FAKE_SS_DELAY));
@@ -1875,14 +1914,17 @@ async function checkDataFile() {
                     }
                   });
                 }
-              });
-            }
-          }
-          if (result.deleteTabId) {
-              chrome.tabs.remove(result.deleteTabId);
-          }
+              }
+            });
+          });
+        }
+    
+        if (result.deleteTabId) {
+          chrome.tabs.remove(result.deleteTabId);
+        }
       });
     }
+    
 
     if (lastEntry && lastEntry.id === "16" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
@@ -2125,6 +2167,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
     
         const buttonWrapper = document.createElement("div");
         buttonWrapper.style.width = "33%";
+   
         buttonWrapper.style.margin = "5px";
         buttonWrapper.style.display = "flex";
         buttonWrapper.style.justifyContent = "center";
@@ -2144,8 +2187,10 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         button.style.alignItems = "center";
         button.style.transition = "background 0.5s ease";
         button.style.fontWeight = "bold"
+        button.style.fontSize = "16px"
+        button.style.height = "50px"
         button.onmouseover = function() {
-          this.style.background = "#A6D344"; 
+          this.style.background = "#6c757d"; 
           this.style.transition = "all 0.5s ease";
         }
         
@@ -2168,66 +2213,121 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         return { button, buttonText }
     }
 
-    function addSplitButton(container, text, callbackLeft, callbackRight, colorLeft, colorRight, id) {
-      const { button, buttonText } = createButton(container, text, null, colorLeft + colorRight);
-    
-      button.style.position = "relative";
-      button.style.overflow = "hidden";
+    function addSplitButton(container, textLeft, textRight, callbackLeft, callbackRight, id) {
+      const button = document.createElement("button");
       button.id = id;
-    
-      const gradient = document.createElement("div");
-      gradient.style.background = `linear-gradient(to right, ${colorLeft} 50%, ${colorRight} 50%)`;
-      gradient.style.position = "absolute";
-      gradient.style.padding = "10px 0px 5px 0px";
-      gradient.style.top = "0";
-      gradient.style.left = "0";
-      gradient.style.width = "100%";
-      gradient.style.height = "100%";
-      gradient.style.transition = "opacity 0.5s ease";
-      gradient.style.display = "flex";
-      gradient.style.justifyContent = "center";
-      gradient.style.alignItems = "center";
-      gradient.textContent = text;
-    
-      button.appendChild(gradient);
-    
-      button.addEventListener("mousemove", function(event) {
-        const rect = button.getBoundingClientRect();
-        const hoverX = event.clientX - rect.left;
-    
-        if (hoverX <= rect.width / 2) {
-          gradient.style.opacity = "0";
-          button.style.background = "#e38571";
-        } else {
-          gradient.style.opacity = "0";
-          button.style.background = "#A6D344";
-        }
+      button.style.cssText = `
+          background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
+          background-size: 205% 100%;
+          background-position: center;
+          color: white;
+          border: none;
+          cursor: pointer;
+          padding: 0;
+          width: 33%;
+          height: 50px;
+          border-radius: 10px;
+          display: flex;
+          justify-content: space-between;
+          position: relative;
+          overflow: hidden;
+          transition: all 0.5s ease;
+          font-family: 'Josefin Sans', sans-serif;
+          margin: 5px;
+          font-size: 14px;
+          align-items: center;
+      `;
+  
+      // Создаем части кнопки
+      const leftPart = createButtonPart(textLeft);
+      const rightPart = createButtonPart(textRight);
+      
+      // Добавляем разделитель
+      const divider = document.createElement("div");
+      divider.style.cssText = `
+          width: 2px;
+          height: 60%;
+          background: rgba(255, 255, 255, 0.3);
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 2;
+          transition: opacity 0.5s ease;
+      `;
+  
+      button.appendChild(leftPart);
+      button.appendChild(rightPart);
+      button.appendChild(divider);
+  
+      // Анимация при наведении
+      let animationTimeout;
+      
+      const handleHover = (side) => {
+          clearTimeout(animationTimeout);
+          button.style.backgroundPosition = side;
+          divider.style.opacity = '0';
+          
+          if(side === 'left') {
+              leftPart.style.opacity = '1';
+              rightPart.style.opacity = '0';
+          } else {
+              leftPart.style.opacity = '0';
+              rightPart.style.opacity = '1';
+          }
+      };
+  
+      const resetState = () => {
+          button.style.backgroundPosition = 'center';
+          leftPart.style.opacity = '1';
+          rightPart.style.opacity = '1';
+          divider.style.opacity = '1';
+      };
+  
+      // Обработчики событий
+      leftPart.addEventListener('mouseover', () => handleHover('left'));
+      leftPart.addEventListener('mouseout', () => {
+          animationTimeout = setTimeout(resetState, 100);
       });
-    
-      button.addEventListener("mouseout", function() {
-        gradient.style.opacity = "1";
-        button.style.background = "#A6D344" + "#e38571";
+  
+      rightPart.addEventListener('mouseover', () => handleHover('right'));
+      rightPart.addEventListener('mouseout', () => {
+          animationTimeout = setTimeout(resetState, 100);
       });
-    
+  
+      // Обработка кликов
       button.addEventListener("click", async (event) => {
-        const rect = button.getBoundingClientRect();
-        const clickX = event.clientX - rect.left;
-    
-        // Отключаем кнопку на время выполнения запроса
-        button.disabled = true;
-    
-        // Определяем, на какую часть кнопки нажали
-        if (clickX <= rect.width / 2) {
-          await animateButton(button, buttonText, callbackLeft); 
-        } else {
-          await animateButton(button, buttonText, callbackRight); 
-        }
-    
-        // Включаем кнопку обратно после завершения
-        button.disabled = false;
+          const rect = button.getBoundingClientRect();
+          const clickX = event.clientX - rect.left;
+          button.disabled = true;
+  
+          if(clickX <= rect.width / 2) {
+              await animateButton(button, leftPart, callbackLeft);
+          } else {
+              await animateButton(button, rightPart, callbackRight);
+          }
+          
+          button.disabled = false;
       });
-    
-      return { button, buttonText };
+  
+      container.appendChild(button);
+      return { button };
+  }
+  
+  function createButtonPart(text) {
+    const part = document.createElement("div");
+    part.style.cssText = `
+        flex: 1;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 4px;
+        transition: all 0.5s ease;
+        z-index: 1;
+        opacity: 1;
+    `;
+    part.textContent = text;
+    return part;
     }
       
         if (!window.buttonsAdded) {
@@ -2267,12 +2367,12 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
           const containerNew = document.createElement("div");
           containerNew.style.position = "fixed";
-          containerNew.style.bottom = "62px";
+          containerNew.style.bottom = "72px";
           containerNew.style.left = "50%";
           containerNew.style.transform = "translateX(-50%)";
           containerNew.style.display = "flex";
           containerNew.style.flexDirection = "row";
-          containerNew.style.alignItems = "center";
+          containerNew.style.alignItems = "end";
           containerNew.style.fontFamily = "'Josefin Sans', sans-serif";
           containerNew.style.color = "white";
           containerNew.style.width = "90%";
@@ -2283,19 +2383,24 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
           addSplitButton(
             container,
-            "Clear Photo",
+            "Clear all photos",  
+            "Clear 1 photo",    
             clearRequestLeft,
-            clearRequestRight, 
-            "#DD6D55",  
-            "#2D9B37",
-            "split-button1",
-          );
-
+            clearRequestRight,
+            "split-button1"
+        );
           document.body.appendChild(container);
           document.body.appendChild(container2);
 
-          createButton(container,  "Add Media", pasteRequest, '#2D9B37', "yen-add-photo");
-          addSplitButton(container, "Make Post", bindFixRequest, bindRequest, "#DD6D55", "#2D9B37", "split-button2");
+          createButton(container,  "Add Media", pasteRequest, '#5a6268', "yen-add-photo");
+          addSplitButton(
+            container,
+            "Next tab & post", 
+            "Post",                          
+            bindFixRequest,
+            bindRequest,
+            "split-button2"
+        );
           let postIndicatorButton = createIndicatorButton(container2);
           let fakeColors = createFakeColorsButton(container2);
           let fakeMakeButton = createFakeMakeButton(document.body);
@@ -2350,39 +2455,134 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           }
 
           const stopButton = document.createElement("button");
-          stopButton.id = "stop-button"
-          stopButton.style.backgroundColor = "#808080"; // серый цвет
-          stopButton.style.color = "white";
-          stopButton.style.border = "none";
-          stopButton.style.cursor = "pointer";
-          stopButton.style.zIndex = "9999";
-          stopButton.style.fontFamily = "'Josefin Sans', sans-serif";
-          stopButton.style.borderRadius = "10px";
-          stopButton.style.height = "30px";
-          stopButton.style.padding = "2px";
-          stopButton.style.width = "31%";
-          stopButton.style.display = "flex";
-          stopButton.style.justifyContent = "center";
-          stopButton.style.alignItems = "center";
-          stopButton.style.marginRight = "10px";
-          const stopButtonText = document.createElement("span");
-          stopButtonText.textContent = "stop";
-          stopButtonText.style.transition = "all 0.5s ease";  
-          stopButton.appendChild(stopButtonText);
-
-          stopButton.addEventListener("click", async () => {
-            await animateButton(stopButton, stopButtonText, stopRequest)
+          stopButton.id = "stop-button";
+          stopButton.style.cssText = `
+              background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
+              background-size: 200% 100%;
+              background-position: center;
+              color: white;
+              border: none;
+              cursor: pointer;
+              z-index: 9999;
+              font-family: 'Josefin Sans', sans-serif;
+              border-radius: 10px;
+              height: 50px;
+              padding: 0;
+              width: 33%;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-right: 10px;
+              overflow: hidden;
+              transition: all 0.5s ease;
+              position: relative;
+              font-size: 16px;
+          `;
+          
+          // Левая часть кнопки
+          const stopPostingPart = document.createElement("div");
+          stopPostingPart.style.cssText = `
+              flex: 1;
+              height: 100%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 0 8px;
+              transition: all 0.5s ease;
+              z-index: 1;
+              opacity: 1;
+          `;
+          
+          // Правая часть кнопки
+          const stopAutoPart = document.createElement("div");
+          stopAutoPart.style.cssText = `
+              flex: 1;
+              height: 100%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 0 8px;
+              transition: all 0.5s ease;
+              z-index: 1;
+              opacity: 1;
+          `;
+          
+          // Добавляем текст
+          stopPostingPart.textContent = "stop posting";
+          stopAutoPart.textContent = "stop auto";
+          
+          // Добавляем части в кнопку
+          stopButton.appendChild(stopPostingPart);
+          stopButton.appendChild(stopAutoPart);
+          
+          // Добавляем разделитель
+          const divider = document.createElement("div");
+          divider.style.cssText = `
+              width: 1px;
+              height: 60%;
+              rgba(255, 255, 255, 0.3);
+              position: absolute;
+              left: 50%;
+              transform: translateX(-50%);
+              z-index: 2;
+              transition: opacity 0.5s ease;
+          `;
+          stopButton.appendChild(divider);
+          
+          // Общие настройки анимации
+          let animationTimeout;
+          
+          const handleHover = (part, targetPosition) => {
+              clearTimeout(animationTimeout);
+              stopButton.style.backgroundPosition = targetPosition;
+              
+              if (part === 'left') {
+                  stopPostingPart.style.opacity = '1';
+                  stopAutoPart.style.opacity = '0';
+                  divider.style.opacity = '0';
+              } else {
+                  stopPostingPart.style.opacity = '0';
+                  stopAutoPart.style.opacity = '1';
+                  divider.style.opacity = '0';
+              }
+          };
+          
+          const resetState = () => {
+              stopButton.style.backgroundPosition = 'center';
+              stopPostingPart.style.opacity = '1';
+              stopAutoPart.style.opacity = '1';
+              divider.style.opacity = '1';
+          };
+          
+          // Обработчики для левой части
+          stopPostingPart.addEventListener('mouseover', () => handleHover('left', 'left'));
+          stopPostingPart.addEventListener('mouseout', () => {
+              animationTimeout = setTimeout(resetState, 100);
           });
-
-          stopButton.onmouseover = function() {
-              this.style.background = "#999999"; // светло-серый при наведении
-              this.style.transition = "all 0.5s ease";
+          
+          // Обработчики для правой части
+          stopAutoPart.addEventListener('mouseover', () => handleHover('right', 'right'));
+          stopAutoPart.addEventListener('mouseout', () => {
+              animationTimeout = setTimeout(resetState, 100);
+          });
+          
+          function setStopState(value) {
+            isStop = value;
+            chrome.storage.local.set({ isStop: value });
+            console.log(value)
           }
 
-          stopButton.onmouseout = function() {
-              this.style.background = "#808080";
-              this.style.transition = "all 0.5s ease";
-          }
+          stopPostingPart.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              await animateButton(stopButton, stopPostingPart, stopRequest);
+          });
+          
+          stopAutoPart.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            setStopState(true); 
+            await animateButton(stopButton, stopAutoPart);
+          });
+          
 
           containerNew.appendChild(stopButton);
           containerNew.appendChild(newButton); 
@@ -3086,31 +3286,47 @@ function updateButtonStyleOnAllTabs(style, reset = false) {
   });
 }
 
-function clickAndMove(currentTabId, remainingClicks) {
-  if (remainingClicks > 0) {
-    clickOnNewTab(currentTabId)
-    setTimeout(() => {
-      checkForMoreTabs(currentTabId, function(moreTabsExist, nextTabId) {
-        if (moreTabsExist) {
-          clickAndMove(nextTabId, remainingClicks - 1); // Переходим на следующую вкладку
-        } else {
-          // Восстанавливаем исходный стиль после последнего клика и удаляем обработчики
-          updateButtonStyleOnAllTabs({
-            backgroundColor: 'rgb(221, 109, 85)',
-            cursor: 'pointer',
-            color: 'white'
-          }, true);  // true для удаления обработчиков событий
-        }
-      });
-    }, DELAY_AFTER_OPENING_NEW_TAB + DELAY_BEFORE_OPENING_NEW_TAB);
-  } else {
-    // Восстанавливаем исходный стиль после последнего клика и удаляем обработчики
-    updateButtonStyleOnAllTabs({
-      backgroundColor: 'rgb(221, 109, 85)',
-      cursor: 'pointer',
-      color: 'white'
-    }, true);  // true для удаления обработчиков событий
+async function clickAndMove(currentTabId, remainingClicks) {
+
+  function setStopState(value) {
+    isStop = value;
+    chrome.storage.local.set({ isStop: value });
+    console.log(value)
   }
+
+  function getStopState(callback) {
+    chrome.storage.local.get('isStop', (result) => {
+      console.log(result.isStop)
+      callback(result.isStop !== undefined ? result.isStop : false);
+    });
+  }
+
+  getStopState((stopFlag) => {
+    if (remainingClicks > 0 && !stopFlag) {
+      clickOnNewTab(currentTabId);
+      setTimeout(() => {
+        checkForMoreTabs(currentTabId, (moreTabsExist, nextTabId) => {
+          if (moreTabsExist) {
+            clickAndMove(nextTabId, remainingClicks - 1);
+          } else {
+            updateButtonStyleOnAllTabs({
+              backgroundColor: 'rgb(221, 109, 85)',
+              cursor: 'pointer',
+              color: 'white'
+            }, true);
+            setStopState(false);
+          }
+        });
+      }, DELAY_AFTER_OPENING_NEW_TAB + DELAY_BEFORE_OPENING_NEW_TAB);
+    } else {
+      updateButtonStyleOnAllTabs({
+        backgroundColor: 'rgb(221, 109, 85)',
+        cursor: 'pointer',
+        color: 'white'
+      }, true);
+      setStopState(false);
+    }
+  });
 }
 
 function checkForMoreTabs(currentTabId, callback) {
@@ -3150,7 +3366,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       backgroundColor: 'grey',
       cursor: 'not-allowed',
       color: 'white',
-      hoverBackgroundColor: 'darkgrey'  // Цвет фона при наведении
+      hoverBackgroundColor: 'darkgrey'
     });
 
     chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {

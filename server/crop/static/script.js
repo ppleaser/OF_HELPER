@@ -509,37 +509,37 @@ document.addEventListener('DOMContentLoaded', () => {
             closeBtn, 
             inputField 
         } = config;
-
+ 
         const toggleModal = (show = false) => {
-            modal.classList.toggle('hidden', !show);
+            modal?.classList.toggle('hidden', !show);
             if (inputField) inputField.value = '';
         };
-
-        addBtn.addEventListener('click', () => toggleModal(true));
+ 
+        addBtn?.addEventListener('click', () => toggleModal(true));
         saveBtn?.addEventListener('click', () => toggleModal());
-        closeBtn.addEventListener('click', () => toggleModal());
-
-        modal.addEventListener('click', (event) => {
+        closeBtn?.addEventListener('click', () => toggleModal());
+ 
+        modal?.addEventListener('click', (event) => {
             if (event.target === modal) toggleModal();
         });
     };
-
-    setupModal({
+ 
+    setupModal({    
         addBtn: document.getElementById('add-hint-btn'),
         saveBtn: document.getElementById('save-hint-btn'),
         modal: document.getElementById('hint-modal'),
         closeBtn: document.getElementById('close-modal-btn'),
         inputField: document.getElementById('hint-input')
     });
-
+ 
     setupModal({
         addBtn: document.getElementById('add-general-hint-btn'),
-        saveBtn: document.getElementById('save-general-hint-btn'),
+        saveBtn: document.getElementById('save-general-hint-btn'), 
         modal: document.getElementById('hint-modal-general'),
         closeBtn: document.getElementById('close-general-modal-btn'),
         inputField: document.getElementById('general-hint-input')
     });
-
+ 
     const activeNumber = localStorage.getItem('activeButtonNumber') || '1';
     updateActiveButton(activeNumber);
-});
+ });
