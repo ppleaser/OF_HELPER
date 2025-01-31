@@ -664,3 +664,27 @@ input[type="checkbox"] {
   display: flex; 
   flex-direction: column;
 }
+
+.sort-buttons {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-evenly;
+  padding: 2px 5px 7px 5px;
+}
+
+.sort-btn {
+  border: none;
+  cursor: pointer;
+  background: none;
+}
+
+.sort-btn svg {
+  display: block;
+}
+
+.sort-btn.active {
+  background: #ffffff;
+  border-radius: 3px;
+  border: none;
+}

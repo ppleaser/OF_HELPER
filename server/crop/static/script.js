@@ -9,7 +9,7 @@ function copyToClipboard(text, event) {
 
     var copyButton = event.target;
     copyButton.classList.add('animate');
-    
+
     if (!copyButton.dataset.clickCount || copyButton.dataset.clickCount % 2 === 0) {
         copyButton.style.backgroundColor = '#D26BFF';
         copyButton.dataset.clickCount = 1;
@@ -27,7 +27,7 @@ let rotationStates = {};
 
 async function rotateMedia(mediaId, direction, filePath, mediaType) {
     const mediaElement = document.getElementById(mediaId);
-    
+
     if (!mediaElement) return;
 
     if (!rotationStates[mediaId]) {
@@ -73,7 +73,6 @@ async function rotateMedia(mediaId, direction, filePath, mediaType) {
     }
 }
 
-
 function copyImageToClipboard(imgBase64, event) {
     var img = new Image();
     img.onload = function() {
@@ -95,7 +94,7 @@ function copyImageToClipboard(imgBase64, event) {
                 copyButton.style.backgroundColor = '#6BFF96';
                 copyButton.dataset.clickCount++;
             }
-            // Remove animation
+
             setTimeout(function() {
                 copyButton.classList.remove('animate');
             }, 200);
@@ -103,7 +102,6 @@ function copyImageToClipboard(imgBase64, event) {
     };
     img.src = imgBase64;
 }
-
 
 async function copyVideoToClipboard(videoPath, event) {
     try {
@@ -129,7 +127,6 @@ async function copyVideoToClipboard(videoPath, event) {
                     },
                     body: JSON.stringify({ path: videoPath }),
                 });
-
 
     } catch (err) {
         console.error('Could not copy video: ', err);
@@ -210,7 +207,7 @@ function sendFiles(receiver_id, client_id, event) {
         element.style.animation = 'slide-up 0.5s forwards';
         var copyButton = document.getElementById('send-button');
         copyButton.classList.add('animate');
-        
+
         if (!copyButton.dataset.clickCount || copyButton.dataset.clickCount > 0) {
             copyButton.style.backgroundColor = '#D0FF6B ';
             copyButton.dataset.clickCount = 1;
@@ -328,31 +325,31 @@ function updateHintCheckbox(chatId, hintKey, action = 'update', hintType = 'pers
             if (container) container.remove();
             return;
         }
-         
+
         const allCheckboxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
         const allHintItems = Array.from(container.querySelectorAll('.hint-item'));
-        
+
         if (action === 'delete') {
-            const indexToRemove = allCheckboxes.findIndex(cb =>
-                cb.id === `checkbox-${hintType === 'personal' ? '' : 'general-'}${hintKey}`
-            );
-            
+
+            const checkboxId = `checkbox-${hintType}-${hintKey}`;
+            const indexToRemove = allCheckboxes.findIndex(cb => cb.id === checkboxId);
+
             if (indexToRemove !== -1) {
                 allHintItems[indexToRemove].remove();
             }
-            
+
             const remainingKeys = container.querySelectorAll('.hint-item');
             if (remainingKeys.length === 0) {
                 container.remove();
                 return;
             }
-            
+
             const newActiveCheckbox = container.querySelector('input[type="checkbox"]');
             const newActiveItem = newActiveCheckbox.closest('.hint-item');
-            
+
             allCheckboxes.forEach(cb => cb.checked = false);
             allHintItems.forEach(item => item.classList.remove('active'));
-            
+
             newActiveCheckbox.checked = true;
             newActiveItem.classList.add('active');
 
@@ -362,20 +359,16 @@ function updateHintCheckbox(chatId, hintKey, action = 'update', hintType = 'pers
                 checkbox.checked = false;
                 checkbox.closest('.hint-item').classList.remove('active');
             });
-            
-            let personalCheckbox = allCheckboxes.find(
-                checkbox => checkbox.id === `checkbox-${hintKey}`
-            );
-            
-            if (!personalCheckbox) {
-                personalCheckbox = allCheckboxes.find(
-                    checkbox => checkbox.id === `checkbox-general-${hintKey}`
-                );
-            }
-            
-            if (personalCheckbox) {
-                personalCheckbox.checked = true;
-                personalCheckbox.closest('.hint-item').classList.add('active');
+
+            const currentMode = localStorage.getItem('sortMode') || 'usage';
+            switchSortMode(currentMode);
+
+            const targetCheckboxId = `checkbox-${hintType}-${hintKey}`;
+            const targetCheckbox = allCheckboxes.find(cb => cb.id === targetCheckboxId);
+
+            if (targetCheckbox) {
+                targetCheckbox.checked = true;
+                targetCheckbox.closest('.hint-item').classList.add('active');
             }
         }
     })
@@ -389,7 +382,7 @@ function deleteHint(chatId, hintKey, hintType = 'personal') {
 function saveHint(chatIdToUse, messageCount, hintType = 'personal') {
     const newHintInput = document.getElementById(hintType === 'personal' ? 'hint-input' : 'general-hint-input');
     const newHintKey = newHintInput.value.trim();
-    
+
     if (!newHintKey) {
         alert('Пожалуйста, введите ключ');
         return;
@@ -412,16 +405,16 @@ function saveHint(chatIdToUse, messageCount, hintType = 'personal') {
         if (data.success) {
             const fullHintKey = data.full_hint_key;
             let hintsContainer = document.getElementById('hints-container');
-            
+
             if (!hintsContainer) {
                 hintsContainer = document.createElement('div');
                 hintsContainer.id = 'hints-container';
                 hintsContainer.className = 'hints-container';
-    
+
                 const chatSection = document.querySelector('.chat-section') || document.body;
                 chatSection.appendChild(hintsContainer);
             }
-            
+
             const checkboxId = `checkbox-${hintType === 'general' ? 'general-' : ''}${fullHintKey}`;
             const newHintHtml = `
                 <div class="hint-item ${hintType === 'general' ? 'general-hint' : ''} active">
@@ -450,10 +443,10 @@ function saveHint(chatIdToUse, messageCount, hintType = 'personal') {
                     </div>
                 </div>
             `;
-            
+
             hintsContainer.insertAdjacentHTML('beforeend', newHintHtml);
             newHintInput.value = ''; 
-            
+
             updateHintCheckbox(chatIdToUse, fullHintKey, 'update', hintType);
         } else {
             alert(data.message || 'Не удалось добавить ключ');
@@ -500,7 +493,217 @@ function updateActiveButton(activeNumber) {
     });
 }
 
+function parse_time(time_str) {
+    const match = time_str.match(/^(\d+)([as])$/);
+    if (!match) return null;
+
+    let [_, digits, period] = match;
+    const is_pm = period === 's';
+
+    let hours, minutes;
+    if (digits.length === 3) {
+        hours = parseInt(digits[0]);
+        minutes = parseInt(digits.slice(1, 3));
+    } else if (digits.length === 4) {
+        hours = parseInt(digits.slice(0, 2));
+        minutes = parseInt(digits.slice(2, 4));
+    } else {
+        return null;
+    }
+
+    if (is_pm && hours !== 12) hours += 12;
+    else if (!is_pm && hours === 12) hours = 0;
+
+    return [hours, minutes];
+}
+
+function extract_leading_number(s) {
+    const match = s.match(/^\d+/);
+    return match ? parseInt(match[0]) : 0;
+}
+
+function sort_hints_by_time(hints) {
+
+    let checkedHint = Array.from(hints).find(hint => 
+        hint.classList.contains('active') || 
+        hint.querySelector('input[type="checkbox"]').checked
+    );
+
+    if (!checkedHint) {
+        const hintsData = JSON.parse(document.getElementById('hints-data').textContent);
+        const chatId = JSON.parse(document.getElementById('chat-id').textContent);
+        const chatData = hintsData[chatId] || {};
+        const checkedValue = chatData.checkbox || '';
+        checkedHint = Array.from(hints).find(hint => 
+            hint.querySelector('.hint-label').textContent === checkedValue
+        );
+    }
+
+    const groups = {
+        numeric: [],
+        q: [],
+        w: [],
+        e: [],
+        other: []
+    };
+
+    Array.from(hints).forEach(hint => {
+        if (hint === checkedHint) return;
+
+        const label = hint.querySelector('.hint-label').textContent;
+        const parts = label.split(' ');
+        const firstPart = parts[0] || '';
+
+        if (!firstPart) {
+            groups.other.push(hint);
+            return;
+        }
+
+        const firstChar = firstPart[0].toLowerCase();
+        if (/^\d/.test(firstChar)) {
+            const num = parseInt(firstPart.match(/^\d+/)[0]);
+            groups.numeric.push([num, hint]);
+        } else if (['q', 'w', 'e'].includes(firstChar)) {
+            const timeCode = firstPart.slice(1);
+            const time = parse_time(timeCode);
+            groups[firstChar].push([time, hint]);
+        } else {
+            groups.other.push(hint);
+        }
+    });
+
+    ['numeric', 'q', 'w', 'e'].forEach(group => {
+        groups[group].sort((a, b) => {
+            if (!a[0]) return 1;
+            if (!b[0]) return -1;
+            if (Array.isArray(a[0])) {
+                return a[0][0] === b[0][0] ? a[0][1] - b[0][1] : a[0][0] - b[0][0];
+            }
+            return a[0] - b[0];
+        });
+    });
+
+    return [
+        ...(checkedHint ? [checkedHint] : []),
+        ...groups.numeric.map(x => x[1]),
+        ...groups.q.map(x => x[1]),
+        ...groups.w.map(x => x[1]),
+        ...groups.e.map(x => x[1]),
+        ...groups.other
+    ];
+}
+
+function sort_hints_by_usage(hints) {
+    const hintsData = JSON.parse(document.getElementById('hints-data').textContent);
+    const chatId = JSON.parse(document.getElementById('chat-id').textContent);
+    const chatData = hintsData[chatId] || {};
+
+    let checkedHint = Array.from(hints).find(hint => 
+        hint.querySelector('input[type="checkbox"]').checked
+    );
+
+    if (!checkedHint) {
+        const hintsData = JSON.parse(document.getElementById('hints-data').textContent);
+        const chatId = JSON.parse(document.getElementById('chat-id').textContent);
+        const chatData = hintsData[chatId] || {};
+        const checkedValue = chatData.checkbox || '';
+        checkedHint = Array.from(hints).find(hint => 
+            hint.querySelector('.hint-label').textContent === checkedValue
+        );
+    }
+
+    const usageGroups = new Map(); 
+
+    Array.from(hints)
+        .filter(hint => hint !== checkedHint)
+        .forEach(hint => {
+            const label = hint.querySelector('.hint-label').textContent;
+            const usage = chatData[label] || 0;
+
+            if (!usageGroups.has(usage)) {
+                usageGroups.set(usage, []);
+            }
+            usageGroups.get(usage).push(hint);
+        });
+
+    for (let [usage, hintGroup] of usageGroups) {
+        hintGroup.sort((a, b) => {
+            const labelA = a.querySelector('.hint-label').textContent;
+            const labelB = b.querySelector('.hint-label').textContent;
+
+            const timeStrA = labelA.split(' ')[0];
+            const timeStrB = labelB.split(' ')[0];
+
+            const typeA = timeStrA[0].toLowerCase();
+            const typeB = timeStrB[0].toLowerCase();
+
+            if (typeA !== typeB) {
+                if (typeA === 'q') return -1;
+                if (typeB === 'q') return 1;
+                if (typeA === 'w') return -1;
+                if (typeB === 'w') return 1;
+                return 0;
+            }
+
+            const timeA = parse_time(timeStrA.slice(1));
+            const timeB = parse_time(timeStrB.slice(1));
+
+            if (!timeA) return 1;
+            if (!timeB) return -1;
+
+            if (timeA[0] !== timeB[0]) {
+                return timeA[0] - timeB[0];
+            }
+            return timeA[1] - timeB[1];
+        });
+    }
+
+    const sortedHints = [];
+
+    if (checkedHint) {
+        sortedHints.push(checkedHint);
+    }
+
+    Array.from(usageGroups.keys())
+        .sort((a, b) => b - a) 
+        .forEach(usage => {
+            sortedHints.push(...usageGroups.get(usage));
+        });
+
+    return sortedHints;
+}
+
+function switchSortMode(newMode) {
+
+    if (!localStorage.getItem('sortMode')) {
+        localStorage.setItem('sortMode', 'usage');
+    }
+
+    const currentMode = localStorage.getItem('sortMode');
+    if (currentMode === newMode) return;
+
+    localStorage.setItem('sortMode', newMode);
+
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`button[onclick*="switchSortMode('${newMode}')"]`).classList.add('active');
+
+    const container = document.getElementById('hints-container');
+    if (!container) return;
+
+    const hints = Array.from(container.querySelectorAll('.hint-item'));
+
+    const sortedHints = newMode === 'usage' 
+        ? sort_hints_by_usage(hints)
+        : sort_hints_by_time(hints);
+
+    const hintsWrapper = container.querySelector('.hints-wrapper') || container;
+    hintsWrapper.replaceChildren(...sortedHints);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+
     const setupModal = (config) => {
         const { 
             addBtn, 
@@ -509,21 +712,21 @@ document.addEventListener('DOMContentLoaded', () => {
             closeBtn, 
             inputField 
         } = config;
- 
+
         const toggleModal = (show = false) => {
             modal?.classList.toggle('hidden', !show);
             if (inputField) inputField.value = '';
         };
- 
+
         addBtn?.addEventListener('click', () => toggleModal(true));
         saveBtn?.addEventListener('click', () => toggleModal());
         closeBtn?.addEventListener('click', () => toggleModal());
- 
+
         modal?.addEventListener('click', (event) => {
             if (event.target === modal) toggleModal();
         });
     };
- 
+
     setupModal({    
         addBtn: document.getElementById('add-hint-btn'),
         saveBtn: document.getElementById('save-hint-btn'),
@@ -531,7 +734,7 @@ document.addEventListener('DOMContentLoaded', () => {
         closeBtn: document.getElementById('close-modal-btn'),
         inputField: document.getElementById('hint-input')
     });
- 
+
     setupModal({
         addBtn: document.getElementById('add-general-hint-btn'),
         saveBtn: document.getElementById('save-general-hint-btn'), 
@@ -539,7 +742,27 @@ document.addEventListener('DOMContentLoaded', () => {
         closeBtn: document.getElementById('close-general-modal-btn'),
         inputField: document.getElementById('general-hint-input')
     });
- 
+
+    if (!localStorage.getItem('sortMode')) {
+        localStorage.setItem('sortMode', 'usage');
+    }
+
     const activeNumber = localStorage.getItem('activeButtonNumber') || '1';
     updateActiveButton(activeNumber);
+
+    const currentMode = localStorage.getItem('sortMode');
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`button[onclick*="switchSortMode('${currentMode}')"]`).classList.add('active');
+
+    if (container) {
+        const hints = Array.from(container.querySelectorAll('.hint-item'));
+        const sortedHints = currentMode === 'usage' 
+            ? sort_hints_by_usage(hints)
+            : sort_hints_by_time(hints);
+
+        const hintsWrapper = container.querySelector('.hints-wrapper') || container;
+        hintsWrapper.replaceChildren(...sortedHints);
+    }
  });

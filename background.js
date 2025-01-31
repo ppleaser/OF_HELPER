@@ -112,7 +112,7 @@ function updateTabCounterOnActiveTab(isReset) {
                 const secondTargetNode  = document.querySelector('.b-reminder-form.m-error');
                 const innerDiv = secondTargetNode ? secondTargetNode.querySelector('div') : null;
                 if (innerDiv) {
-                  if (innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing') || innerDiv.textContent.includes('Daily') || innerDiv.textContent.includes('Attached')) { 
+                  if (innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing') || innerDiv.textContent.includes('Daily')) { 
                       clearInterval(intervalId);  
                       return; 
                   }
