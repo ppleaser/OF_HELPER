@@ -755,14 +755,10 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.classList.remove('active');
     });
     document.querySelector(`button[onclick*="switchSortMode('${currentMode}')"]`).classList.add('active');
-
-    if (container) {
-        const hints = Array.from(container.querySelectorAll('.hint-item'));
-        const sortedHints = currentMode === 'usage' 
+    const hintsWrapper = document.querySelector('.hints-wrapper')
+    const hints = Array.from(hintsWrapper.querySelectorAll('.hint-item'));
+    const sortedHints = currentMode === 'usage' 
             ? sort_hints_by_usage(hints)
             : sort_hints_by_time(hints);
-
-        const hintsWrapper = container.querySelector('.hints-wrapper') || container;
-        hintsWrapper.replaceChildren(...sortedHints);
-    }
+    hintsWrapper.replaceChildren(...sortedHints);
  });

@@ -24,6 +24,7 @@ let timerVisibility = true
 let onlyFansOpenTabs = new Set(); 
 let closedTabIds = new Set();
 let closedTabsCount = 0; 
+let lastCheckTime = 0;
 let lastClosedTime = null; 
 let isStop = false;
 
@@ -153,26 +154,30 @@ function updateTabCounterOnActiveTab(isReset) {
                   }
               }
             }
-            chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(tabs) {
+            const currentTime = Date.now();
+            if (currentTime - lastCheckTime >= 5000) {
+              lastCheckTime = currentTime;
+              chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(tabs) {
 
-            chrome.tabs.query({ active: true, currentWindow: true }, function(activeTabs) {
-                const activeTabId = activeTabs[0].id;
-                const tabId = tabs[0].id;
-                const tabUrl = tabs[0].url;
-                if (tabs.length >= 20 && tabUrl === "https://onlyfans.com/posts/create" && tabId != activeTabId) { 
-                    chrome.scripting.executeScript({
-                        target: { tabId: tabId },
-                        function: checkAndCloseTab
-                    });         
-                }
-                if (tabUrl.startsWith("https://onlyfans.com") && tabUrl !== "https://onlyfans.com/posts/create" && tabs.length >= 5 && tabId != activeTabId) {
-                    if (!closedTabIds.has(tabId)) {
-                      closedTabIds.add(sender.tab.id);
-                    }
-                    chrome.tabs.remove(tabId);
-                }
-              });
-          });
+              chrome.tabs.query({ active: true, currentWindow: true }, function(activeTabs) {
+                  const activeTabId = activeTabs[0].id;
+                  const tabId = tabs[0].id;
+                  const tabUrl = tabs[0].url;
+                  if (tabs.length >= 20 && tabUrl === "https://onlyfans.com/posts/create" && tabId != activeTabId) { 
+                      chrome.scripting.executeScript({
+                          target: { tabId: tabId },
+                          function: checkAndCloseTab
+                      });         
+                  }
+                  if (tabUrl.startsWith("https://onlyfans.com") && tabUrl !== "https://onlyfans.com/posts/create" && tabs.length >= 5 && tabId != activeTabId) {
+                      if (!closedTabIds.has(tabId)) {
+                        closedTabIds.add(tabId);
+                      }
+                      chrome.tabs.remove(tabId);
+                  }
+                });
+            });
+          }
         }
       }
 
@@ -296,7 +301,6 @@ async function searchPosts() {
 
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   if (message.type === 'checkModelsResult') {
-    console.log("Data from checkModels:", message.data);
       try {
         const response = await fetch("http://localhost:3000/checkModels", {
           method: "POST",
@@ -952,6 +956,7 @@ try {
   }
 
   let currentDate = new Date();
+  currentDate.setMinutes(currentDate.getMinutes() + 10);
 
   let monthNames = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -1409,7 +1414,6 @@ chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
 });
 
 function sendActivityInfo(browser) {
-  console.log(browser)
   fetch('http://localhost:3000/activity', {
       method: 'POST',
       headers: {
@@ -1418,7 +1422,6 @@ function sendActivityInfo(browser) {
       body: JSON.stringify({ browser }),
   })
   .then(response => response.text())
-  .then(data => console.log(data))
   .catch(error => console.error('Error:', error));
 }
 
@@ -1688,7 +1691,6 @@ async function checkDataFile() {
             pattern = pattern.replace(/\.*$/, '');  // Убираем точку в конце
         }
         pattern = pattern.replace(/\./g, '-');  // Заменяем точки на дефисы
-        console.log(pattern)
         async function findCorrectImageUrl(pattern) {
           const extensions = ["png", "gif", "mp4"];
           for (const ext of extensions) {
@@ -2569,7 +2571,6 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           function setStopState(value) {
             isStop = value;
             chrome.storage.local.set({ isStop: value });
-            console.log(value)
           }
 
           stopPostingPart.addEventListener("click", async (e) => {
@@ -2859,13 +2860,8 @@ chrome.runtime.onInstalled.addListener(function(details) {
   var newTabs = []
 
   if (details.reason === 'install') {
-    chrome.storage.local.clear(function() {
-      console.log('Локальное хранилище очищено.');
-    });
-    chrome.storage.sync.clear(function() {
-      console.log('Синхронизированное хранилище очищено.');
-    });
-
+    chrome.storage.local.clear()
+    chrome.storage.sync.clear()
     chrome.tabs.create({ url: 'chrome://extensions/' }, function(tab) {
       newTabs.push(tab.id)
     });
@@ -3291,12 +3287,10 @@ async function clickAndMove(currentTabId, remainingClicks) {
   function setStopState(value) {
     isStop = value;
     chrome.storage.local.set({ isStop: value });
-    console.log(value)
   }
 
   function getStopState(callback) {
     chrome.storage.local.get('isStop', (result) => {
-      console.log(result.isStop)
       callback(result.isStop !== undefined ? result.isStop : false);
     });
   }
