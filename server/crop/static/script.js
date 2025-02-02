@@ -1,7 +1,8 @@
 function copyToClipboard(text, event) {
     var dummy = document.createElement("textarea");
     document.body.appendChild(dummy);
-    var replacedText = text.replace(/<br>/g, "\n");
+    var replacedText = text.replace(/<br\s*\/?>/gi, "\n");  
+    replacedText = replacedText.replace(/\n{2,}/g, "\n\n"); 
     dummy.value = replacedText;
     dummy.select();
     document.execCommand("copy");
@@ -250,28 +251,6 @@ function deleteFiles() {
     });
 }
 
-function switchAutoDelete(sw) {
-    var copyButton = document.getElementsByClassName('button3')[0];
-    copyButton.classList.add('animate');
-    setTimeout(function() {
-        copyButton.classList.remove('animate');
-    }, 200);
-    fetch('/switch-auto-delete', { method: 'POST' })
-    .then(response => response.json())
-    .then(data => {
-        var element = document.getElementById('delete-status');
-        if (data.message) {
-        element.textContent = data.message;
-        element.classList.add('show');
-        element.style.animation = 'slide-up 0.5s forwards';
-        setTimeout(function() {
-            element.classList.remove('show');
-            element.style.animation = 'none';
-        }, 5000);
-    }
-    });
-}
-
 function deleteOneFile() {
 
     var copyButton = document.getElementsByClassName('button1')[0];;
@@ -302,7 +281,56 @@ function checkFiles(nickname) {
     .then(data => {
         document.getElementById('button-text').textContent = data.files
         document.getElementById('send-button').textContent = 'Send ' + data.files + ' files to ' + nickname;
+        document.getElementById('file-count').textContent = data.count;
+        document.getElementById('file-size').textContent = data.size;
     });
+}
+
+function switchAutoDelete(){
+    var copyButton = document.getElementsByClassName('button3')[0];
+    copyButton.classList.add('animate');
+    setTimeout(function() {
+        copyButton.classList.remove('animate');
+    }, 200);
+    fetch('/switch-auto-delete', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        var element = document.getElementById('delete-status');
+        if (data.message) {
+        element.textContent = data.message;
+        element.classList.add('show');
+        element.style.animation = 'slide-up 0.5s forwards';
+        setTimeout(function() {
+            element.classList.remove('show');
+            element.style.animation = 'none';
+        }, 5000);
+    }
+    });
+}
+
+function toggleAutoDelete() {
+    fetch('/toggle_auto_delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        const toggleSwitch = document.querySelector('.toggle-switch');
+        toggleSwitch.classList.toggle('active', data.enabled);
+        var element = document.getElementById('delete-status');
+        if (data.message) {
+        element.textContent = data.message;
+        element.classList.add('show');
+        element.style.animation = 'slide-up 0.5s forwards';
+        setTimeout(function() {
+            element.classList.remove('show');
+            element.style.animation = 'none';
+        }, 5000);
+    }
+    })
+    .catch(error => console.error('Error:', error));
 }
 
 function updateHintCheckbox(chatId, hintKey, action = 'update', hintType = 'personal') {
@@ -754,11 +782,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.sort-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    document.querySelector(`button[onclick*="switchSortMode('${currentMode}')"]`).classList.add('active');
-    const hintsWrapper = document.querySelector('.hints-wrapper')
-    const hints = Array.from(hintsWrapper.querySelectorAll('.hint-item'));
-    const sortedHints = currentMode === 'usage' 
-            ? sort_hints_by_usage(hints)
-            : sort_hints_by_time(hints);
-    hintsWrapper.replaceChildren(...sortedHints);
+    try {
+        document.querySelector(`button[onclick*="switchSortMode('${currentMode}')"]`).classList.add('active');
+        const hintsWrapper = document.querySelector('.hints-wrapper')
+        const hints = Array.from(hintsWrapper.querySelectorAll('.hint-item'));
+        const sortedHints = currentMode === 'usage' 
+                ? sort_hints_by_usage(hints)
+                : sort_hints_by_time(hints);
+        hintsWrapper.replaceChildren(...sortedHints);
+    }
+    catch {}
  });

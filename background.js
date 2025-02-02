@@ -1,287 +1,292 @@
-const DELAY_AFTER_OPENING_NEW_TAB = 900
-const DELAY_BEFORE_OPENING_NEW_TAB = 400
-const ALL_ACTIONS_MONITOR = 200
-const DELAY_GREEN_BUTTON = 500
-const FAKE_SS_DELAY = 100
+const DELAY_AFTER_OPENING_NEW_TAB = 900;
+const DELAY_BEFORE_OPENING_NEW_TAB = 400;
+const ALL_ACTIONS_MONITOR = 200;
+const DELAY_GREEN_BUTTON = 500;
+const FAKE_SS_DELAY = 100;
 
-// Для MacOS (поменяйте цифры выше на примерно такие): 
+// Для MacOS (поменяйте цифры выше на примерно такие):
 // const DELAY_AFTER_OPENING_NEW_TAB = 1500
 // const DELAY_BEFORE_OPENING_NEW_TAB = 800
 // const ALL_ACTIONS_MONITOR = 200
 // const DELAY_GREEN_BUTTON = 500
 // const FAKE_SS_DELAY = 300
-// :) 
+// :)
 
-console.error = function() {};
+console.error = function () {};
 
 async function executeScriptIfValid(activeTab, details) {
-  if (activeTab && !activeTab.url.startsWith('chrome://')) {
+  if (activeTab && !activeTab.url.startsWith("chrome://")) {
     await chrome.scripting.executeScript(details);
   }
 }
 
-let timerVisibility = true
-let onlyFansOpenTabs = new Set(); 
+let timerVisibility = true;
+let onlyFansOpenTabs = new Set();
 let closedTabIds = new Set();
-let closedTabsCount = 0; 
+let closedTabsCount = 0;
 let lastCheckTime = 0;
-let lastClosedTime = null; 
+let lastClosedTime = null;
 let isStop = false;
+const intervals = new Map();
+let processing = false;
 
 function updateTabCounterOnActiveTab(isReset) {
-  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (tabs.length === 0) return;
-      const activeTab = tabs[0];
-      let onlyFansTabsCount = onlyFansOpenTabs.size;
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    if (tabs.length === 0) return;
+    const activeTab = tabs[0];
+    let onlyFansTabsCount = onlyFansOpenTabs.size;
 
-      if (!timerVisibility) {
-        chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: () => {
-                const tabCounter = document.getElementById('tabCounter');
-                const cont1 = document.getElementById('cont1');
-                const cont2 = document.getElementById('cont2');
-                const cont3 = document.getElementById('cont3');
-    
-                // Скрываем элементы
-                [tabCounter, cont1, cont2, cont3].forEach(el => {
-                    if (el) {
-                        el.style.opacity = '0';
-                        el.style.pointerEvents = 'none';
-                    }
-                });
+    chrome.scripting
+      .executeScript({
+        target: { tabId: activeTab.id },
+        func: (isVisible) => {
+          const elements = [
+            document.getElementById("tabCounter"),
+            document.getElementById("cont1"),
+            document.getElementById("cont2"),
+            document.getElementById("cont3"),
+          ];
+          elements.forEach((el) => {
+            if (el) {
+              el.style.opacity = isVisible ? "1" : "0";
+              el.style.pointerEvents = isVisible ? "auto" : "none";
             }
-        }).catch(err => console.error('Error executing script:', err));
-    } else {
-        chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: () => {
-                const tabCounter = document.getElementById('tabCounter');
-                const cont1 = document.getElementById('cont1');
-                const cont2 = document.getElementById('cont2');
-                const cont3 = document.getElementById('cont3');
-    
-                // Возвращаем элементы в исходное состояние
-                [tabCounter, cont1, cont2, cont3].forEach(el => {
-                    if (el) {
-                        el.style.opacity = '1'; // Сделать видимыми
-                        el.style.pointerEvents = 'auto'; // Включить события указателя
-                    }
-                });
-            }
-        }).catch(err => console.error('Error executing script:', err));
+          });
+        },
+        args: [timerVisibility],
+      })
+      .catch(console.error);
+
+    let timeSinceLastClosed = "00:00";
+    let color = "rgb(45, 155, 55)";
+
+    if (isReset) {
+      lastClosedTime = new Date();
+      closedTabsCount = 0;
     }
 
+    if (lastClosedTime) {
+      const now = new Date();
+      const diffMs = now - lastClosedTime;
+      const diffSecs = Math.floor(diffMs / 1000);
+      const minutes = String(Math.floor(diffSecs / 60)).padStart(2, "0");
+      const seconds = String(diffSecs % 60).padStart(2, "0");
+      timeSinceLastClosed = `${minutes}:${seconds}`;
 
-      let timeSinceLastClosed = "00:00";
-      let color = "rgb(45, 155, 55)"; 
-
-      if (isReset) {
-          lastClosedTime = new Date();
-          closedTabsCount = 0;
+      if (diffSecs < 15) {
+        color = "rgb(45, 155, 55)";
+      } else if (diffSecs < 30) {
+        color = "yellow";
+      } else {
+        color = "rgb(221, 109, 85)";
+        checkTabs();
       }
+    }
 
-      if (lastClosedTime) { 
-          const now = new Date();
-          const diffMs = now - lastClosedTime;
-          const diffSecs = Math.floor(diffMs / 1000);
-          const minutes = String(Math.floor((diffSecs % 3600) / 60)).padStart(2, '0');
-          const seconds = String(diffSecs % 60).padStart(2, '0');
-          timeSinceLastClosed = `${minutes}:${seconds}`;
-
-          if (diffSecs < 15) {
-              color = "rgb(45, 155, 55)";
-          } else if (diffSecs >= 15 && diffSecs < 30) {
-              color = "yellow";
-          } else {
-              color = "rgb(221, 109, 85)";
-
-              chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-                  if (request.action === 'closeTab' && sender.tab) {
-                      if (!closedTabIds.has(tabId)) {
-                        closedTabIds.add(sender.tab.id);
-                      }
-                      chrome.tabs.remove(sender.tab.id);
-                  }
-              });
-            
-            function checkAndCloseTab() {
-
-              function pressBind() {
-                let intervalId = setInterval(function() {
-                let selector = document.querySelector('[at-attr="submit_post"]') || document.querySelector("#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button");
-                const secondTargetNode  = document.querySelector('.b-reminder-form.m-error');
-                const innerDiv = secondTargetNode ? secondTargetNode.querySelector('div') : null;
-                if (innerDiv) {
-                  if (innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing') || innerDiv.textContent.includes('Daily')) { 
-                      clearInterval(intervalId);  
-                      return; 
-                  }
-                }
-                if (selector && !selector.disabled) {
-                    selector.click();
-                    setTimeout(function() {
-                        let buttons = document.querySelectorAll('button.g-btn.m-flat.m-btn-gaps.m-reset-width');
-                        buttons.forEach(function(button) {
-                            if (button.textContent.trim() === "Yes") {
-                                button.click();
-                                clearInterval(intervalId); 
-                                return;
-                            }
-                        });
-                    }, 500); 
-                  }  
-                }, 5000);
-              }
-
-              const editor = document.querySelector('.tiptap.ProseMirror');
-              if (editor) {
-                  const isEmpty = editor.getAttribute('data-is-empty') === 'true';
-                  if (isEmpty) {
-                      chrome.runtime.sendMessage({ action: 'closeTab' });
-                  }
-                  else { 
-                    let errorElement = document.querySelector('.b-reminder-form.m-error');
-                    if (errorElement) {
-                      return;
-                    }
-                    else {
-                      if (!window.isPressBindRunning) {
-                        pressBind()
-                        window.isPressBindRunning = true;
-                      }
-                    }
-                  }
-              }
+    chrome.scripting
+      .executeScript({
+        target: { tabId: activeTab.id },
+        func: (count, closedCount, time, color) => {
+          const update = () => {
+            let counter = document.getElementById("tabCounter");
+            if (!counter) {
+              counter = document.createElement("div");
+              counter.id = "tabCounter";
+              counter.style.position = "fixed";
+              counter.style.bottom = "60px";
+              counter.style.left = "20px";
+              counter.style.fontFamily = "'Josefin Sans', sans-serif";
+              counter.style.fontSize = "20px";
+              counter.style.padding = "10px";
+              counter.style.borderRadius = "5px";
+              counter.style.zIndex = "99999";
+              document.body.appendChild(counter);
             }
-            const currentTime = Date.now();
-            if (currentTime - lastCheckTime >= 5000) {
-              lastCheckTime = currentTime;
-              chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(tabs) {
+            counter.style.color = color;
+            counter.textContent = `${count} / ${closedCount} / ${time}`;
+          };
+          document.readyState === "loading"
+            ? document.addEventListener("DOMContentLoaded", update)
+            : update();
+        },
+        args: [onlyFansTabsCount, closedTabsCount, timeSinceLastClosed, color],
+      })
+      .catch(console.error);
+  });
 
-              chrome.tabs.query({ active: true, currentWindow: true }, function(activeTabs) {
-                  const activeTabId = activeTabs[0].id;
-                  const tabId = tabs[0].id;
-                  const tabUrl = tabs[0].url;
-                  if (tabs.length >= 20 && tabUrl === "https://onlyfans.com/posts/create" && tabId != activeTabId) { 
-                      chrome.scripting.executeScript({
-                          target: { tabId: tabId },
-                          function: checkAndCloseTab
-                      });         
-                  }
-                  if (tabUrl.startsWith("https://onlyfans.com") && tabUrl !== "https://onlyfans.com/posts/create" && tabs.length >= 5 && tabId != activeTabId) {
-                      if (!closedTabIds.has(tabId)) {
-                        closedTabIds.add(tabId);
-                      }
-                      chrome.tabs.remove(tabId);
-                  }
-                });
-            });
-          }
-        }
-      }
+  function checkTabs() {
+    if (Date.now() - lastCheckTime < 5000 || processing) return;
+    processing = true;
+    lastCheckTime = Date.now();
 
-      chrome.scripting.executeScript({
-          target: { tabId: activeTab.id },
-          func: (count, closedCount, timeSinceClosed, color) => {
-              const updateCounter = () => {
-                  let tabCounter = document.getElementById('tabCounter');
-                  if (!tabCounter) {
-                      tabCounter = document.createElement("div");
-                      tabCounter.id = 'tabCounter';
-                      tabCounter.style.position = "fixed";
-                      tabCounter.style.bottom = "60px";
-                      tabCounter.style.left = "20px";
-                      tabCounter.style.fontFamily = "'Josefin Sans', sans-serif";
-                      tabCounter.style.fontSize = '20px';
-                      tabCounter.style.padding = "10px";
-                      tabCounter.style.borderRadius = "5px";
-                      tabCounter.style.zIndex = "99999";
-                      document.body.appendChild(tabCounter);
-                  }
-                  tabCounter.style.color = color;
-                  tabCounter.textContent = `${count} / ${closedCount} / ${timeSinceClosed}`;
-              };
+    chrome.tabs.query(
+      { url: "https://onlyfans.com/*", status: "complete" },
+      (tabs) => {
+        chrome.tabs.query(
+          { active: true, currentWindow: true },
+          ([activeTab]) => {
+            processing = false;
+            if (!activeTab || !tabs?.length) return;
 
-              if (document.readyState === 'loading') {
-                  document.addEventListener('DOMContentLoaded', updateCounter);
-              } else {
-                  updateCounter();
-              }
+            tabs
+              .filter((tab) => tab.id !== activeTab.id)
+              .slice(0, 3)
+              .forEach((tab) => {
+                if (
+                  tab.url === "https://onlyfans.com/posts/create" &&
+                  tabs.length >= 20
+                ) {
+                  chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: checkAndCloseTab,
+                    args: [tab.id],
+                  });
+                } else if (
+                  tab.url.startsWith("https://onlyfans.com") &&
+                  tab.url !== "https://onlyfans.com/posts/create" &&
+                  tabs.length >= 5
+                ) {
+                  closedTabIds.add(tab.id);
+                  closedTabsCount++;
+                  chrome.tabs.remove(tab.id);
+                }
+              });
           },
-          args: [onlyFansTabsCount, closedTabsCount, timeSinceLastClosed, color]
-      }).catch(err => console.error('Error executing script:', err));
+        );
+      },
+    );
+  }
+
+  function checkAndCloseTab(tabId) {
+    if (intervals.has(tabId)) {
+      clearInterval(intervals.get(tabId));
+      intervals.delete(tabId);
+    }
+
+    const editor = document.querySelector(".tiptap.ProseMirror");
+    if (editor?.getAttribute("data-is-empty") === "true") {
+      chrome.runtime.sendMessage({ action: "closeTab", tabId });
+      return;
+    }
+
+    const pressBind = () => {
+      const intervalId = setInterval(() => {
+        const selector = document.querySelector(
+          '[at-attr="submit_post"], #content button.g-btn',
+        );
+        const errorNode = document.querySelector(
+          ".b-reminder-form.m-error div",
+        );
+
+        if (errorNode?.textContent.match(/Internal|Nothing|Daily/i)) {
+          cleanupInterval(tabId);
+          return;
+        }
+
+        if (selector?.disabled === false) {
+          selector.click();
+          setTimeout(() => {
+            const confirmButton = Array.from(
+              document.querySelectorAll("button.g-btn"),
+            ).find((b) => b.textContent.trim() === "Yes");
+            confirmButton?.click();
+            cleanupInterval(tabId);
+          }, 500);
+        }
+      }, 5000);
+      intervals.set(tabId, intervalId);
+    };
+
+    if (!document.querySelector(".b-reminder-form.m-error")) pressBind();
+  }
+
+  function cleanupInterval(tabId) {
+    if (intervals.has(tabId)) {
+      clearInterval(intervals.get(tabId));
+      intervals.delete(tabId);
+    }
+  }
+
+  // Обработчики событий
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    cleanupInterval(tabId);
+    closedTabIds.delete(tabId);
   });
 }
 
 function openNewTab() {
-  chrome.runtime.sendMessage({action: "openNewTab"});
+  chrome.runtime.sendMessage({ action: "openNewTab" });
 }
 
 async function toggleColors() {
-
   const button = document.querySelector('button[at-attr="submit_post"]');
   if (button) {
-      button.style.backgroundColor = 'rgba(138,150,163,.75)';
-      button.style.opacity = '.4';
+    button.style.backgroundColor = "rgba(138,150,163,.75)";
+    button.style.opacity = ".4";
   }
 
-  const element = document.querySelector('.g-btn.m-flat.m-link.m-default-font-weight.m-no-uppercase.m-reset-width.b-dot-item');
+  const element = document.querySelector(
+    ".g-btn.m-flat.m-link.m-default-font-weight.m-no-uppercase.m-reset-width.b-dot-item",
+  );
   if (element) {
-    element.style.opacity = '.4';
+    element.style.opacity = ".4";
   }
 
-  const anotherElement = document.querySelector('.g-btn.m-btn-icon.m-reset-width.m-flat.m-with-round-hover.m-size-sm-hover');
+  const anotherElement = document.querySelector(
+    ".g-btn.m-btn-icon.m-reset-width.m-flat.m-with-round-hover.m-size-sm-hover",
+  );
   if (anotherElement) {
-    anotherElement.style.opacity = '.4';
+    anotherElement.style.opacity = ".4";
   }
 
-  const elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size');
-  elements.forEach(element => {
-    element.style.opacity = '.4';
-    element.style.background = 'rgba(138, 150, 163, .75)';
+  const elements = document.querySelectorAll(
+    ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size",
+  );
+  elements.forEach((element) => {
+    element.style.opacity = ".4";
+    element.style.background = "rgba(138, 150, 163, .75)";
   });
 }
 
 async function instantPostOn() {
-  await chrome.storage.sync.set({ 'postChecked': true });
-  const button = document.getElementById('instantPost');
+  await chrome.storage.sync.set({ postChecked: true });
+  const button = document.getElementById("instantPost");
   button.style.background = "#2D9B37";
 }
 
 async function instantPostOff() {
-  await chrome.storage.sync.set({ 'postChecked': false });
-  const button = document.getElementById('instantPost');
+  await chrome.storage.sync.set({ postChecked: false });
+  const button = document.getElementById("instantPost");
   button.style.background = "#DD6D55";
 }
 
 async function fakeColorsOn() {
-  await chrome.storage.sync.set({ 'fakeChecked': true });
-  const button = document.getElementById('fakeButton');
-  button.style.background = "#6E8C6E"; // Зеленый с серым
+  await chrome.storage.sync.set({ fakeChecked: true });
+  const button = document.getElementById("fakeButton");
+  button.style.background = "#6E8C6E";
 }
 
 async function fakeColorsOff() {
-  await chrome.storage.sync.set({ 'fakeChecked': false });
-  const button = document.getElementById('fakeButton');
-  button.style.background = "#8C6E6E"; // Красный с серым
+  await chrome.storage.sync.set({ fakeChecked: false });
+  const button = document.getElementById("fakeButton");
+  button.style.background = "#8C6E6E"; 
 }
 
 async function searchPosts() {
-  const fileUrl = chrome.runtime.getURL('server/files/tags.txt');
+  const fileUrl = chrome.runtime.getURL("server/files/tags.txt");
   const response = await fetch(fileUrl);
   const text = await response.text();
-  const lines = text.split('\n').filter(line => line.trim() !== '');
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
 
-  const usernameDiv = document.querySelector('.g-user-username');
+  const usernameDiv = document.querySelector(".g-user-username");
   if (usernameDiv) {
     const username = usernameDiv.innerText;
-    const baseUrl = 'https://onlyfans.com/';
-    const searchUrl = '/search/posts?q=';
+    const baseUrl = "https://onlyfans.com/";
+    const searchUrl = "/search/posts?q=";
 
     for (const line of lines) {
       const url = `${baseUrl}${line}${searchUrl}${username}`;
-      const newTab = window.open(url, '_blank');
+      const newTab = window.open(url, "_blank");
       /*
       newTab.addEventListener('DOMContentLoaded', () => {
         const observer = new MutationObserver((mutationsList, observer) => {
@@ -299,190 +304,259 @@ async function searchPosts() {
   }
 }
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-  if (message.type === 'checkModelsResult') {
-      try {
-        const response = await fetch("http://localhost:3000/checkModels", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(message.data)
-        });
-        if (response.ok) {
-          console.log("Data sent successfully to the server");
-        } else {
-          console.error("Failed to send data to the server");
-        }
-      } catch (error) {
-        console.error("Error:", error);
-      }
-    }
-})
- 
 async function checkModels() {
   async function outputElements(newTab) {
-    const usernameElements = newTab.document.querySelectorAll('.g-user-username');
-    const username = usernameElements.length >= 2 ? usernameElements[1].textContent : "-";
-    let fanCountElement = newTab.document.querySelector('svg[data-icon-name="icon-follow"]');
-    const fanCount = fanCountElement ? fanCountElement.nextElementSibling.textContent.trim() : 'closed Fans';
-    
+    const usernameElements =
+      newTab.document.querySelectorAll(".g-user-username");
+    const username =
+      usernameElements.length >= 2 ? usernameElements[1].textContent : "-";
+    let fanCountElement = newTab.document.querySelector(
+      'svg[data-icon-name="icon-follow"]',
+    );
+    const fanCount = fanCountElement
+      ? fanCountElement.nextElementSibling.textContent.trim()
+      : "closed Fans";
+
     setTimeout(() => {
-      const currentMonthElement = newTab.document.querySelector('.vdatetime-calendar__current--month');
-      const currentMonth = currentMonthElement ? currentMonthElement.textContent : "-";
-      let firstActiveDay = newTab.document.querySelector('.vdatetime-calendar__month__day:not(.vdatetime-calendar__month__day--disabled)');
-      let firstActiveDayNumber = firstActiveDay ? firstActiveDay.querySelector('span span').textContent : '-';
-      chrome.runtime.sendMessage({ type: 'checkModelsResult', data: { username, currentMonth, firstActiveDayNumber, fanCount } });
+      const currentMonthElement = newTab.document.querySelector(
+        ".vdatetime-calendar__current--month",
+      );
+      const currentMonth = currentMonthElement
+        ? currentMonthElement.textContent
+        : "-";
+      let firstActiveDay = newTab.document.querySelector(
+        ".vdatetime-calendar__month__day:not(.vdatetime-calendar__month__day--disabled)",
+      );
+      let firstActiveDayNumber = firstActiveDay
+        ? firstActiveDay.querySelector("span span").textContent
+        : "-";
+      chrome.runtime.sendMessage({
+        action: "checkModelsResult",
+        data: { username, currentMonth, firstActiveDayNumber, fanCount },
+      });
     }, 1000);
   }
 
-  const fileUrl = chrome.runtime.getURL('server/files/tags.txt');
+  const fileUrl = chrome.runtime.getURL("server/files/tags.txt");
   const response = await fetch(fileUrl);
   const text = await response.text();
-  const lines = text.split('\n').filter(line => line.trim() !== '');
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
 
   for (const line of lines) {
     const url = `https://onlyfans.com/${line}`;
-    const newTab = window.open(url, '_blank');
+    const newTab = window.open(url, "_blank");
 
     const checkDOM = setInterval(() => {
-      if (newTab.document.readyState !== 'loading') {
+      if (newTab.document.readyState !== "loading") {
         clearInterval(checkDOM);
 
         let subscribeButtonClicked = false;
         let dropdownButtonClicked = false;
 
-        const observer = new MutationObserver(async (mutationsList, observer) => {
-          for (let mutation of mutationsList) {
-            if (mutation.type === 'childList') {
-              const subscribeButton = newTab.document.querySelector(".m-rounded.m-flex.m-space-between.m-lg.g-btn");
-              const dropdownButton = newTab.document.querySelector('.btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size');
+        const observer = new MutationObserver(
+          async (mutationsList, observer) => {
+            for (let mutation of mutationsList) {
+              if (mutation.type === "childList") {
+                const subscribeButton = newTab.document.querySelector(
+                  ".m-rounded.m-flex.m-space-between.m-lg.g-btn",
+                );
+                const dropdownButton = newTab.document.querySelector(
+                  ".btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size",
+                );
 
-              if (subscribeButton && !dropdownButtonClicked && !dropdownButton && !subscribeButtonClicked) {
-                subscribeButtonClicked = true
-                setTimeout(() => {
-                  subscribeButton.click();
+                if (
+                  subscribeButton &&
+                  !dropdownButtonClicked &&
+                  !dropdownButton &&
+                  !subscribeButtonClicked
+                ) {
+                  subscribeButtonClicked = true;
                   setTimeout(() => {
-                    const newDropdownButton = newTab.document.querySelector('.btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size');
-                    if (newDropdownButton) {
-                      newDropdownButton.click();
-                      dropdownButtonClicked = true;
+                    subscribeButton.click();
+                    setTimeout(() => {
+                      const newDropdownButton = newTab.document.querySelector(
+                        ".btn.dropdown-toggle.g-btn.m-gray.m-with-round-hover.m-icon.m-icon-only.m-sm-size",
+                      );
+                      if (newDropdownButton) {
+                        newDropdownButton.click();
+                        dropdownButtonClicked = true;
 
-                      setTimeout(() => {
-                        const goToDateLabel = newTab.document.querySelector('label[for="filter-go-to-date"]');
-                        if (goToDateLabel) {
-                          goToDateLabel.click();
-                        }
+                        setTimeout(() => {
+                          const goToDateLabel = newTab.document.querySelector(
+                            'label[for="filter-go-to-date"]',
+                          );
+                          if (goToDateLabel) {
+                            goToDateLabel.click();
+                          }
 
-                        setTimeout(async () => {
-                          let days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
-                          days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
+                          setTimeout(async () => {
+                            let days = Array.from(
+                              newTab.document.querySelectorAll(
+                                ".vdatetime-calendar__month .vdatetime-calendar__month__day",
+                              ),
+                            );
+                            days = days.filter(
+                              (day) =>
+                                !day.classList.contains(
+                                  "vdatetime-calendar__month__day--disabled",
+                                ),
+                            );
 
-                          while (days.length > 0) {
-                            const previousButton = newTab.document.querySelector('.vdatetime-calendar__navigation--previous');
-                            if (previousButton) {
-                              previousButton.click();
-                              await new Promise(resolve => setTimeout(resolve, 100));
+                            while (days.length > 0) {
+                              const previousButton =
+                                newTab.document.querySelector(
+                                  ".vdatetime-calendar__navigation--previous",
+                                );
+                              if (previousButton) {
+                                previousButton.click();
+                                await new Promise((resolve) =>
+                                  setTimeout(resolve, 100),
+                                );
+                              }
+                              days = Array.from(
+                                newTab.document.querySelectorAll(
+                                  ".vdatetime-calendar__month .vdatetime-calendar__month__day",
+                                ),
+                              );
+                              days = days.filter(
+                                (day) =>
+                                  !day.classList.contains(
+                                    "vdatetime-calendar__month__day--disabled",
+                                  ),
+                              );
                             }
-                            days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
-                            days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
-                          }
 
-                          const nextButton = newTab.document.querySelector('.vdatetime-calendar__navigation--next');
-                          if (nextButton) {
-                            nextButton.click();
-                            setTimeout(async () => {
-                              await outputElements(newTab);
-                              newTab.close();
-                              observer.disconnect();
-                            }, 500);
-                          }
-                        }, 500);
-                      }, 3000);
-                    }
-                  }, 9000);
-                }, 5000);
-              }
+                            const nextButton = newTab.document.querySelector(
+                              ".vdatetime-calendar__navigation--next",
+                            );
+                            if (nextButton) {
+                              nextButton.click();
+                              setTimeout(async () => {
+                                await outputElements(newTab);
+                                newTab.close();
+                                observer.disconnect();
+                              }, 500);
+                            }
+                          }, 500);
+                        }, 3000);
+                      }
+                    }, 9000);
+                  }, 5000);
+                }
 
-              if (dropdownButton && !dropdownButtonClicked) {
-                dropdownButtonClicked = true;
-                setTimeout(() => {
-                  dropdownButton.click();
+                if (dropdownButton && !dropdownButtonClicked) {
+                  dropdownButtonClicked = true;
                   setTimeout(() => {
-                    const goToDateLabel = newTab.document.querySelector('label[for="filter-go-to-date"]');
-                    if (goToDateLabel) {
-                      goToDateLabel.click();
-                    }
+                    dropdownButton.click();
+                    setTimeout(() => {
+                      const goToDateLabel = newTab.document.querySelector(
+                        'label[for="filter-go-to-date"]',
+                      );
+                      if (goToDateLabel) {
+                        goToDateLabel.click();
+                      }
 
-                    setTimeout(async () => {
-                      let days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
-                      days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
+                      setTimeout(async () => {
+                        let days = Array.from(
+                          newTab.document.querySelectorAll(
+                            ".vdatetime-calendar__month .vdatetime-calendar__month__day",
+                          ),
+                        );
+                        days = days.filter(
+                          (day) =>
+                            !day.classList.contains(
+                              "vdatetime-calendar__month__day--disabled",
+                            ),
+                        );
 
-                      while (days.length > 0) {
-                        const previousButton = newTab.document.querySelector('.vdatetime-calendar__navigation--previous');
-                        if (previousButton) {
-                          previousButton.click();
-                          await new Promise(resolve => setTimeout(resolve, 100));
+                        while (days.length > 0) {
+                          const previousButton = newTab.document.querySelector(
+                            ".vdatetime-calendar__navigation--previous",
+                          );
+                          if (previousButton) {
+                            previousButton.click();
+                            await new Promise((resolve) =>
+                              setTimeout(resolve, 100),
+                            );
+                          }
+                          days = Array.from(
+                            newTab.document.querySelectorAll(
+                              ".vdatetime-calendar__month .vdatetime-calendar__month__day",
+                            ),
+                          );
+                          days = days.filter(
+                            (day) =>
+                              !day.classList.contains(
+                                "vdatetime-calendar__month__day--disabled",
+                              ),
+                          );
                         }
-                        days = Array.from(newTab.document.querySelectorAll('.vdatetime-calendar__month .vdatetime-calendar__month__day'));
-                        days = days.filter(day => !day.classList.contains('vdatetime-calendar__month__day--disabled'));
-                      }
 
-                      const nextButton = newTab.document.querySelector('.vdatetime-calendar__navigation--next');
-                      if (nextButton) {
-                        nextButton.click();
-                        setTimeout(async () => {
-                          await outputElements(newTab);
-                          newTab.close();
-                          observer.disconnect();
-                        }, 500);
-                      }
+                        const nextButton = newTab.document.querySelector(
+                          ".vdatetime-calendar__navigation--next",
+                        );
+                        if (nextButton) {
+                          nextButton.click();
+                          setTimeout(async () => {
+                            await outputElements(newTab);
+                            newTab.close();
+                            observer.disconnect();
+                          }, 500);
+                        }
+                      }, 500);
                     }, 500);
-                  }, 500);
-                }, 5000);
+                  }, 5000);
+                }
               }
             }
-          }
+          },
+        );
+        observer.observe(newTab.document.body, {
+          childList: true,
+          subtree: true,
         });
-        observer.observe(newTab.document.body, { childList: true, subtree: true });
       }
     }, 100);
   }
 }
 
-
 async function clearPosts() {
-
-  var button1 = document.querySelector('a[data-name="Statements"][href="/my/statements/"]');
+  var button1 = document.querySelector(
+    'a[data-name="Statements"][href="/my/statements/"]',
+  );
   if (button1) {
-      button1.click();
+    button1.click();
   }
 
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  var button2 = document.querySelector('a[data-name="PostsCreate"][href="/posts/create"]');
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  var button2 = document.querySelector(
+    'a[data-name="PostsCreate"][href="/posts/create"]',
+  );
   if (button2) {
-      button2.click();
+    button2.click();
   }
 
-  await new Promise(resolve => {
-      const observer = new MutationObserver((mutationsList, observer) => {
-          for (let mutation of mutationsList) {
-              if (mutation.type === 'childList') {
-                  var button3 = document.querySelector("#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button.m-btn-clear-draft.g-btn.m-border.m-rounded.m-sm-width.m-reset-width");
-                  if (button3) {
-                      button3.click();
-                      location.reload();
-                      observer.disconnect();
-                      resolve();
-                  }
-              }
+  await new Promise((resolve) => {
+    const observer = new MutationObserver((mutationsList, observer) => {
+      for (let mutation of mutationsList) {
+        if (mutation.type === "childList") {
+          var button3 = document.querySelector(
+            "#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button.m-btn-clear-draft.g-btn.m-border.m-rounded.m-sm-width.m-reset-width",
+          );
+          if (button3) {
+            button3.click();
+            location.reload();
+            observer.disconnect();
+            resolve();
           }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      setTimeout(() => {
-          observer.disconnect();
-          resolve();
-      }, 5000);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      observer.disconnect();
+      resolve();
+    }, 5000);
   });
 }
 
@@ -496,37 +570,44 @@ function clickOnNewPost() {
 }
 
 function clearPhotoBindSingle() {
-  let elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip');
-  let divs = document.querySelectorAll("#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div")
-  divs.forEach(function(div) {
+  let elements = document.querySelectorAll(
+    ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip",
+  );
+  let divs = document.querySelectorAll(
+    "#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div",
+  );
+  divs.forEach(function (div) {
     if (elements.length > 0 && div.contains(elements[elements.length - 1])) {
-        elements[elements.length - 1].click();
+      elements[elements.length - 1].click();
     }
   });
 }
 
 function clearPhotoBindAll() {
-  let elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip');
-  let divs = document.querySelectorAll("#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div")
-  divs.forEach(function(div) {
-    elements.forEach(function(element) {
-        if (div.contains(element)) {
-            element.click();
-        }
+  let elements = document.querySelectorAll(
+    ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip",
+  );
+  let divs = document.querySelectorAll(
+    "#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div",
+  );
+  divs.forEach(function (div) {
+    elements.forEach(function (element) {
+      if (div.contains(element)) {
+        element.click();
+      }
     });
   });
 }
 
 async function pasteBind() {
-  const tempContainer = document.createElement('div');
-  tempContainer.style.position = 'absolute';
-  tempContainer.style.left = '-9999px';
+  const tempContainer = document.createElement("div");
+  tempContainer.style.position = "absolute";
+  tempContainer.style.left = "-9999px";
   document.body.appendChild(tempContainer);
 
-  // Функция для вставки медиа из буфера обмена во временный элемент
   const pasteToTempContainer = async () => {
     return new Promise((resolve) => {
-      const tempElement = document.createElement('div');
+      const tempElement = document.createElement("div");
       tempElement.contentEditable = true;
       tempContainer.appendChild(tempElement);
       tempElement.focus();
@@ -536,14 +617,16 @@ async function pasteBind() {
         const items = (e.clipboardData || e.originalEvent.clipboardData).items;
 
         for (let item of items) {
-          if (item.type.indexOf('image/') === 0 || 
-              item.type.indexOf('video/') === 0 || 
-              item.type === 'image/gif') {
-            
+          if (
+            item.type.indexOf("image/") === 0 ||
+            item.type.indexOf("video/") === 0 ||
+            item.type === "image/gif"
+          ) {
             const blob = item.getAsFile();
-            const media = item.type.indexOf('image/') === 0 
-              ? document.createElement('img')
-              : document.createElement('video');
+            const media =
+              item.type.indexOf("image/") === 0
+                ? document.createElement("img")
+                : document.createElement("video");
 
             if (media instanceof HTMLVideoElement) {
               media.controls = true;
@@ -555,67 +638,66 @@ async function pasteBind() {
             tempElement.appendChild(media);
           }
         }
-        
+
         setTimeout(() => {
           resolve();
         }, 500);
       };
 
-      tempElement.addEventListener('paste', pasteHandler);
-      document.execCommand('paste');
+      tempElement.addEventListener("paste", pasteHandler);
+      document.execCommand("paste");
     });
   };
 
-  // Улучшенная функция для симуляции drag-and-drop
   const simulateDragAndDrop = (sourceElement, targetElement) => {
     const dataTransfer = new DataTransfer();
 
-    // Ищем медиа элементы (изображения или видео)
-    const mediaElement = sourceElement.querySelector('img, video');
+    const mediaElement = sourceElement.querySelector("img, video");
 
     if (mediaElement) {
-      // Конвертируем медиа в blob
       const convertMediaToBlob = async (element) => {
         if (element instanceof HTMLImageElement) {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
           canvas.width = element.naturalWidth;
           canvas.height = element.naturalHeight;
           ctx.drawImage(element, 0, 0);
-          return new Promise(resolve => canvas.toBlob(resolve));
+          return new Promise((resolve) => canvas.toBlob(resolve));
         } else if (element instanceof HTMLVideoElement) {
           const response = await fetch(element.src);
           return response.blob();
         }
       };
 
-      convertMediaToBlob(mediaElement).then(blob => {
-        const fileExtension = mediaElement instanceof HTMLImageElement ? 'png' : 'mp4';
-        const mimeType = mediaElement instanceof HTMLImageElement ? 'image/png' : 'video/mp4';
-        const file = new File([blob], `media.${fileExtension}`, { type: mimeType });
-        
+      convertMediaToBlob(mediaElement).then((blob) => {
+        const fileExtension =
+          mediaElement instanceof HTMLImageElement ? "png" : "mp4";
+        const mimeType =
+          mediaElement instanceof HTMLImageElement ? "image/png" : "video/mp4";
+        const file = new File([blob], `media.${fileExtension}`, {
+          type: mimeType,
+        });
+
         dataTransfer.items.add(file);
 
-        // Симуляция событий drag-and-drop
         const events = [
-          new DragEvent('dragstart', {
+          new DragEvent("dragstart", {
             bubbles: true,
             cancelable: true,
-            dataTransfer: dataTransfer
+            dataTransfer: dataTransfer,
           }),
-          new DragEvent('dragover', {
+          new DragEvent("dragover", {
             bubbles: true,
             cancelable: true,
-            dataTransfer: dataTransfer
+            dataTransfer: dataTransfer,
           }),
-          new DragEvent('drop', {
+          new DragEvent("drop", {
             bubbles: true,
             cancelable: true,
-            dataTransfer: dataTransfer
-          })
+            dataTransfer: dataTransfer,
+          }),
         ];
 
-        // Последовательно запускаем события
         sourceElement.dispatchEvent(events[0]);
         setTimeout(() => {
           targetElement.dispatchEvent(events[1]);
@@ -627,690 +709,753 @@ async function pasteBind() {
     }
   };
 
-  // Вставка медиа во временный элемент
   await pasteToTempContainer();
 
-  // Находим элементы
-  const tempElement = tempContainer.querySelector('div[contenteditable="true"]');
-  const targetElement = document.querySelector('.tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto');
-                                                
+  const tempElement = tempContainer.querySelector(
+    'div[contenteditable="true"]',
+  );
+  const targetElement = document.querySelector(
+    ".tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto",
+  );
 
   if (targetElement && tempElement) {
     simulateDragAndDrop(tempElement, targetElement);
   } else {
-    console.error('Target element or temporary element not found');
+    console.error("Target element or temporary element not found");
   }
 
-  // Очистка
   setTimeout(() => {
     document.body.removeChild(tempContainer);
   }, 1000);
 }
 
 async function createBrowser(browserType, index, totalIndex, repeat) {
-
-  async function fetchWithRetry(resource, options, timeout = 5000, retries = 5) {
+  async function fetchWithRetry(
+    resource,
+    options,
+    timeout = 5000,
+    retries = 5,
+  ) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
-  
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(resource, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(id);
-            return response;
-        } catch (e) {
-            if (e.name === 'AbortError') {
-                console.log(`Fetch timed out. Retrying (${i + 1}/${retries})...`);
-            } else {
-                throw e;
-            }
-        }
-    }
-    throw new Error('Fetch failed after retries');
-  }
 
-  let number = parseInt(browserType.replace(/\D/g, ''));
-  if (index == 0 || repeat == true) {
-    fetchWithRetry('http://localhost:3000/create-browser', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            totalIndex: totalIndex,
-            number: number,
-            repeat: repeat
-        }),
-    }, 5000).catch(e => console.error(e));
-  }
-}
-
-async function addTextToPost(text, imageUrl, index, browserType, exp, txt, pht) {
-
-  async function fetchWithRetry(resource, options, timeout = 5000, retries = 5) {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
-  
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch(resource, {
           ...options,
-          signal: controller.signal
+          signal: controller.signal,
         });
         clearTimeout(id);
         return response;
       } catch (e) {
-        if (e.name === 'AbortError') {
+        if (e.name === "AbortError") {
           console.log(`Fetch timed out. Retrying (${i + 1}/${retries})...`);
         } else {
           throw e;
         }
       }
     }
-    throw new Error('Fetch failed after retries');
+    throw new Error("Fetch failed after retries");
+  }
+
+  let number = parseInt(browserType.replace(/\D/g, ""));
+  if (index == 0 || repeat == true) {
+    fetchWithRetry(
+      "http://localhost:3000/create-browser",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          totalIndex: totalIndex,
+          number: number,
+          repeat: repeat,
+        }),
+      },
+      5000,
+    ).catch((e) => console.error(e));
+  }
+}
+
+async function addTextToPost(
+  text,
+  imageUrl,
+  index,
+  browserType,
+  exp,
+  txt,
+  pht,
+) {
+  async function fetchWithRetry(
+    resource,
+    options,
+    timeout = 5000,
+    retries = 5,
+  ) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(resource, {
+          ...options,
+          signal: controller.signal,
+        });
+        clearTimeout(id);
+        return response;
+      } catch (e) {
+        if (e.name === "AbortError") {
+          console.log(`Fetch timed out. Retrying (${i + 1}/${retries})...`);
+        } else {
+          throw e;
+        }
+      }
+    }
+    throw new Error("Fetch failed after retries");
   }
 
   function simulateDragAndDrop(sourceElement, targetElement, file) {
     const dataTransfer = new DataTransfer();
-    
-    // Добавляем файл в dataTransfer
+
     dataTransfer.items.add(file);
-    // Симуляция события dragstart
-    const dragStartEvent = new DragEvent('dragstart', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: dataTransfer
+    const dragStartEvent = new DragEvent("dragstart", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: dataTransfer,
     });
     sourceElement.dispatchEvent(dragStartEvent);
 
-    // Задержка перед событием dragover
     setTimeout(() => {
-        const dragOverEvent = new DragEvent('dragover', {
-            bubbles: true,
-            cancelable: true,
-            dataTransfer: dataTransfer
+      const dragOverEvent = new DragEvent("dragover", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dataTransfer,
+      });
+      targetElement.dispatchEvent(dragOverEvent);
+
+      setTimeout(() => {
+        const dropEvent = new DragEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dataTransfer,
         });
-        targetElement.dispatchEvent(dragOverEvent);
+        targetElement.dispatchEvent(dropEvent);
 
-        // Задержка перед событием drop
-        setTimeout(() => {
-            const dropEvent = new DragEvent('drop', {
-                bubbles: true,
-                cancelable: true,
-                dataTransfer: dataTransfer
-            });
-            targetElement.dispatchEvent(dropEvent);
-
-            const dragEndEvent = new DragEvent('dragend', {
-              bubbles: true,
-              cancelable: true,
-              dataTransfer: dataTransfer
-          });
-          sourceElement.dispatchEvent(dragEndEvent);
-        }, 100); 
+        const dragEndEvent = new DragEvent("dragend", {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dataTransfer,
+        });
+        sourceElement.dispatchEvent(dragEndEvent);
+      }, 100);
     }, 100);
-}
-
-let isUploading = false;
-
-async function handleImageUpload(pht) {
-  if (isUploading) return;
-  isUploading = true;
-  let number = parseInt(browserType.replace(/\D/g, ''));
-  
-  const fileExtension = imageUrl.split('.').pop().toLowerCase();
-  let fileType = 'image/png';
-  let mediaElement;
-
-  if (fileExtension === 'gif') {
-    fileType = 'image/gif';
-    mediaElement = new Image();
-  } else if (fileExtension === 'mp4') {
-    fileType = 'video/mp4';
-    mediaElement = document.createElement('video');
-  } else {
-    mediaElement = new Image();
   }
 
-  mediaElement.src = imageUrl;
-  
-  mediaElement.onload = mediaElement.onloadedmetadata = async function () {
-    try {
-      if (pht) {
-        const mediaBlob = await fetch(imageUrl).then(res => res.blob());
-        const file = new File([mediaBlob], `media.${fileExtension}`, { type: fileType });
-        let mediaInserted = false;
+  let isUploading = false;
 
-        await new Promise((resolve) => {
-          const observer = new MutationObserver((mutationsList, observer) => {
-            for (let mutation of mutationsList) {
-              if (mutation.type === 'childList') {
-                let el = document.querySelector(".b-make-post__media-wrapper");
-                if (el && !mediaInserted) {
+  async function handleImageUpload(pht) {
+    if (isUploading) return;
+    isUploading = true;
+    let number = parseInt(browserType.replace(/\D/g, ""));
+
+    const fileExtension = imageUrl.split(".").pop().toLowerCase();
+    let fileType = "image/png";
+    let mediaElement;
+
+    if (fileExtension === "gif") {
+      fileType = "image/gif";
+      mediaElement = new Image();
+    } else if (fileExtension === "mp4") {
+      fileType = "video/mp4";
+      mediaElement = document.createElement("video");
+    } else {
+      mediaElement = new Image();
+    }
+
+    mediaElement.src = imageUrl;
+
+    mediaElement.onload = mediaElement.onloadedmetadata = async function () {
+      try {
+        if (pht) {
+          const mediaBlob = await fetch(imageUrl).then((res) => res.blob());
+          const file = new File([mediaBlob], `media.${fileExtension}`, {
+            type: fileType,
+          });
+          let mediaInserted = false;
+
+          await new Promise((resolve) => {
+            const observer = new MutationObserver((mutationsList, observer) => {
+              for (let mutation of mutationsList) {
+                if (mutation.type === "childList") {
+                  let el = document.querySelector(
+                    ".b-make-post__media-wrapper",
+                  );
+                  if (el && !mediaInserted) {
+                    mediaInserted = true;
+                    clearInterval(intervalId);
+                    isUploading = false;
+                    resolve();
+                    observer.disconnect();
+                  }
+                }
+              }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            let dragAttempts = 0;
+
+            const intervalId = setInterval(function () {
+              let element = document.querySelector(
+                ".tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto",
+              );
+              let el = document.querySelector(".b-make-post__media-wrapper");
+
+              if (element && !el && dragAttempts === 0 && !mediaInserted) {
+                element.focus();
+                simulateDragAndDrop(mediaElement, element, file);
+                mediaInserted = true;
+                dragAttempts++;
+              }
+
+              setTimeout(function () {
+                el = document.querySelector(".b-make-post__media-wrapper");
+                if (el || dragAttempts >= 2) {
                   mediaInserted = true;
                   clearInterval(intervalId);
                   isUploading = false;
                   resolve();
                   observer.disconnect();
                 }
-              }
-            }
+              }, 500);
+            }, 200);
           });
-
-          observer.observe(document.body, { childList: true, subtree: true });
-
-          let dragAttempts = 0;
-
-          const intervalId = setInterval(function () {
-            let element = document.querySelector('.tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto');
-            let el = document.querySelector(".b-make-post__media-wrapper");
-
-            if (element && !el && dragAttempts === 0 && !mediaInserted) {
-              element.focus();
-              simulateDragAndDrop(mediaElement, element, file);
-              mediaInserted = true;
-              dragAttempts++;
-            }
-
-            setTimeout(function () {
-              el = document.querySelector(".b-make-post__media-wrapper");
-              if (el || dragAttempts >= 2) {
-                mediaInserted = true;
-                clearInterval(intervalId);
-                isUploading = false;
-                resolve();
-                observer.disconnect();
-              }
-            }, 500);
-          }, 200);
-        });
+        }
+        await fetchWithRetry(
+          "http://localhost:3000/update-browser",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              index: index,
+              number: number,
+            }),
+          },
+          5000,
+        );
+      } catch (e) {
+        console.log(e);
+        await fetchWithRetry(
+          "http://localhost:3000/update-browser",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              index: index,
+              number: number,
+            }),
+          },
+          5000,
+        );
       }
-      await fetchWithRetry('http://localhost:3000/update-browser', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          index: index,
-          number: number
-        }),
-      }, 5000);
-    } catch (e) {
-      console.log(e);
-      await fetchWithRetry('http://localhost:3000/update-browser', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          index: index,
-          number: number
-        }),
-      }, 5000);
-    }
-  };
+    };
 
-  // Обработка ошибок загрузки медиа
-  mediaElement.onerror = function() {
-    console.error('Ошибка загрузки медиафайла');
-    isUploading = false;
-  };
-}
+    mediaElement.onerror = function () {
+      console.error("Ошибка загрузки медиафайла");
+      isUploading = false;
+    };
+  }
 
   const clickEvent = new Event("click", {
     bubbles: true,
     cancelable: true,
   });
 
-  var checkButton = setInterval(async function() {
+  var checkButton = setInterval(async function () {
     const button = document.querySelector(".b-make-post__expire-period-btn");
     if (button) {
       clearInterval(checkButton);
       if (imageUrl) {
         await handleImageUpload(pht);
-     }
+      }
 
       setTimeout(async () => {
-        const textarea = document.querySelector('.tiptap.ProseMirror'); // Adjust the selector to match your element
+        const textarea = document.querySelector(".tiptap.ProseMirror"); 
         if (textarea) {
           if (txt) {
-          const formattedText = text.split('\n').join('<br>');
-          textarea.innerHTML = `<p>${formattedText}</p>`; // Set the inner HTML
+            const formattedText = text.split("\n").join("<br>");
+            textarea.innerHTML = `<p>${formattedText}</p>`;
           }
-           
+
           if (exp) {
-          setTimeout(async () => {
-          const button_fix = document.querySelector(".b-make-post__expire-period-btn");
+            setTimeout(async () => {
+              const button_fix = document.querySelector(
+                ".b-make-post__expire-period-btn",
+              );
               button_fix.dispatchEvent(clickEvent);
-          }, 500);
-          const observer = new MutationObserver(async (mutationsList, observer) => {
-            for(let mutation of mutationsList) {
-                if (mutation.type === 'childList') {
-                    const button2 = document.querySelector("#ModalPostExpiration___BV_modal_body_ > div.b-tabs__nav.m-nv.m-tab-rounded.m-reset-mb.m-single-current > ul > li:nth-child(2) > button")
+            }, 500);
+            const observer = new MutationObserver(
+              async (mutationsList, observer) => {
+                for (let mutation of mutationsList) {
+                  if (mutation.type === "childList") {
+                    const button2 = document.querySelector(
+                      "#ModalPostExpiration___BV_modal_body_ > div.b-tabs__nav.m-nv.m-tab-rounded.m-reset-mb.m-single-current > ul > li:nth-child(2) > button",
+                    );
                     if (button2) {
-                        button2.dispatchEvent(clickEvent);
-        
-                        const button3 = document.querySelector(
-                            "#ModalPostExpiration___BV_modal_footer_ > button:nth-child(2)",
-                        );
-                        if (button3) {
-                            button3.dispatchEvent(clickEvent);
-                        }
-        
-                        observer.disconnect();
+                      button2.dispatchEvent(clickEvent);
+
+                      const button3 = document.querySelector(
+                        "#ModalPostExpiration___BV_modal_footer_ > button:nth-child(2)",
+                      );
+                      if (button3) {
+                        button3.dispatchEvent(clickEvent);
+                      }
+
+                      observer.disconnect();
                     }
+                  }
                 }
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
+              },
+            );
+            observer.observe(document.body, { childList: true, subtree: true });
+          }
         }
-        } 
       }, 500);
     }
   }, 200);
 }
 
 function addTimeToPost(textInput, isApart, browserType) {
+  try {
+    const clickEvent = new Event("click", {
+      bubbles: true,
+      cancelable: true,
+    });
 
-try {
+    function checkButtonsAndContinue() {
+      const button1 = document.querySelector(
+        ".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn",
+      );
+      const button2 = document.querySelector(
+        ".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn.has-tooltip",
+      );
 
-  const clickEvent = new Event("click", {
-    bubbles: true,
-    cancelable: true,
-  });
-
-  function checkButtonsAndContinue() {
-    const button1 = document.querySelector(".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn");
-    const button2 = document.querySelector('.g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn.has-tooltip');
-    
-    if (button1 || button2) {
-      clearInterval(intervalId);
-      continueExecution(textInput);
-    }
-  }
-
-  function continueExecution(textInput) {
-  let closeButton = document.querySelector("#make_post_form > div.b-make-post > div > div.b-dropzone__previews.b-make-post__schedule-expire-wrapper.g-sides-gaps > div.b-post-piece.b-dropzone__preview.m-schedule.m-loaded.g-pointer-cursor.m-row > button")
-    if (closeButton) {
-      closeButton.dispatchEvent(clickEvent);
-  }
-  
-  if (textInput === "0" && (!isApart || browserType === "browser1")) {
-    return
-  }
-
-  if (textInput === "n") {
-    textInput = "0"
-  }
-
-  const button1 = document.querySelector(".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn.has-tooltip")
-  if (button1) {
-    button1.dispatchEvent(clickEvent);
-  }
-  else {
-    const button10 = document.querySelector(".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn")
-    button10.dispatchEvent(clickEvent);
-  }
-
-  let currentDate = new Date();
-  currentDate.setMinutes(currentDate.getMinutes() + 10);
-
-  let monthNames = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-  ];
-
-  let currentMonthIndex = currentDate.getMonth();
-
-  let nextMonthIndex = (currentMonthIndex + 1) % 12;
-  var nextMonthName = monthNames[nextMonthIndex];
-
-  let currentDayOfMonth = currentDate.getDate();
-  let currentTimeInHours = currentDate.getHours();
-  let currentTimeInMinutes = currentDate.getMinutes();
-
-  let period = "";
-  let hours = 0;
-  let newHours = 0;
-  let newMinutes = "";
-
-  let nextDate = new Date(currentDate);
-  nextDate.setDate(nextDate.getDate() + 1);
-
-  let nextDayOfMonth = nextDate.getDate();
-
-  let dayAfterTomorrow = new Date(currentDate);
-  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-
-  let dayAfterTomorrowDayOfMonth = dayAfterTomorrow.getDate();
-
-  if (textInput.includes('-')) {
-    var parts = textInput.split('-');
-    var textInput = parseInt(parts[0]);
-    newMinutes = parseInt(parts[1]);
-    newMinutes = currentTimeInMinutes + newMinutes + 10
-
-    if (newMinutes >= 60) {
-        newMinutes -= 60;
-        if (currentTimeInMinutes <= 50)
-          textInput += 1;
-    }
-    if (newMinutes < 10) {
-        newMinutes = "0" + newMinutes;
+      if (button1 || button2) {
+        clearInterval(intervalId);
+        continueExecution(textInput);
+      }
     }
 
-    textInput = textInput.toString();
-    newMinutes = newMinutes.toString();
-  }
+    function continueExecution(textInput) {
+      let closeButton = document.querySelector(
+        "#make_post_form > div.b-make-post > div > div.b-dropzone__previews.b-make-post__schedule-expire-wrapper.g-sides-gaps > div.b-post-piece.b-dropzone__preview.m-schedule.m-loaded.g-pointer-cursor.m-row > button",
+      );
+      if (closeButton) {
+        closeButton.dispatchEvent(clickEvent);
+      }
 
-  if (textInput.length === 1 || textInput.length === 2 || textInput.length === 3) {
+      if (textInput === "0" && (!isApart || browserType === "browser1")) {
+        return;
+      }
 
-    hours = currentTimeInHours + parseInt(textInput);
+      if (textInput === "n") {
+        textInput = "0";
+      }
 
-    if (isApart) {
-      let number = parseInt(browserType.replace(/\D/g, ''));
-      hours = hours + number - 1
-    }
+      const button1 = document.querySelector(
+        ".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn.has-tooltip",
+      );
+      if (button1) {
+        button1.dispatchEvent(clickEvent);
+      } else {
+        const button10 = document.querySelector(
+          ".g-btn.m-with-round-hover.m-icon.m-icon-only.m-gray.m-sm-size.b-make-post__datepicker-btn",
+        );
+        button10.dispatchEvent(clickEvent);
+      }
 
-    if (hours > 24) {
-      const additionalDays = Math.floor(hours / 24);
-      let futureDate = new Date(currentDate);
-      let currentMonth = currentDate.getMonth();
-      
-      futureDate.setDate(futureDate.getDate() + additionalDays);
-      currentDayOfMonth = futureDate.getDate();
-      newHours = hours % 24;
-  
-      if (currentTimeInMinutes >= 50) {
-          newHours = newHours + 1;
-          if (newHours === 24) {
+      let currentDate = new Date();
+      currentDate.setMinutes(currentDate.getMinutes() + 10);
+
+      let monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+
+      let currentMonthIndex = currentDate.getMonth();
+
+      let nextMonthIndex = (currentMonthIndex + 1) % 12;
+      var nextMonthName = monthNames[nextMonthIndex];
+
+      let currentDayOfMonth = currentDate.getDate();
+      let currentTimeInHours = currentDate.getHours();
+      let currentTimeInMinutes = currentDate.getMinutes();
+
+      let period = "";
+      let hours = 0;
+      let newHours = 0;
+      let newMinutes = "";
+
+      let nextDate = new Date(currentDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      let nextDayOfMonth = nextDate.getDate();
+
+      let dayAfterTomorrow = new Date(currentDate);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+
+      let dayAfterTomorrowDayOfMonth = dayAfterTomorrow.getDate();
+
+      if (textInput.includes("-")) {
+        var parts = textInput.split("-");
+        var textInput = parseInt(parts[0]);
+        newMinutes = parseInt(parts[1]);
+        newMinutes = currentTimeInMinutes + newMinutes + 10;
+
+        if (newMinutes >= 60) {
+          newMinutes -= 60;
+          if (currentTimeInMinutes <= 50) textInput += 1;
+        }
+        if (newMinutes < 10) {
+          newMinutes = "0" + newMinutes;
+        }
+
+        textInput = textInput.toString();
+        newMinutes = newMinutes.toString();
+      }
+
+      if (
+        textInput.length === 1 ||
+        textInput.length === 2 ||
+        textInput.length === 3
+      ) {
+        hours = currentTimeInHours + parseInt(textInput);
+
+        if (isApart) {
+          let number = parseInt(browserType.replace(/\D/g, ""));
+          hours = hours + number - 1;
+        }
+
+        if (hours > 24) {
+          const additionalDays = Math.floor(hours / 24);
+          let futureDate = new Date(currentDate);
+          let currentMonth = currentDate.getMonth();
+
+          futureDate.setDate(futureDate.getDate() + additionalDays);
+          currentDayOfMonth = futureDate.getDate();
+          newHours = hours % 24;
+
+          if (currentTimeInMinutes >= 50) {
+            newHours = newHours + 1;
+            if (newHours === 24) {
               newHours = 0;
               futureDate.setDate(futureDate.getDate() + 1);
               currentDayOfMonth = futureDate.getDate();
+            }
           }
-      }
-  
-      if (newHours === 0) {
-          newHours = 12;
-          period = "a";
-      } else if (newHours === 12) {
-          period = "s";
-      } else if (newHours < 12) {
-          period = "a";
-      } else {
-          newHours = newHours - 12;
-          period = "s";
-      }
-  
-      setTimeout(() => {
-          const next = document.querySelector(
-              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next"
-          );
-          
-          const currentMonthElement = document.querySelector(
-              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month"
-          );
-  
-          // Проверяем существование элементов
-          if (next && currentMonthElement) {
-              // Проверяем, изменился ли месяц
+
+          if (newHours === 0) {
+            newHours = 12;
+            period = "a";
+          } else if (newHours === 12) {
+            period = "s";
+          } else if (newHours < 12) {
+            period = "a";
+          } else {
+            newHours = newHours - 12;
+            period = "s";
+          }
+
+          setTimeout(() => {
+            const next = document.querySelector(
+              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
+            );
+
+            const currentMonthElement = document.querySelector(
+              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month",
+            );
+
+            if (next && currentMonthElement) {
               if (futureDate.getMonth() !== currentMonth) {
-                  next.dispatchEvent(clickEvent);
+                next.dispatchEvent(clickEvent);
               }
-          }
-      }, 1000);
-  }
-
-   else if (hours === 24 || (currentTimeInMinutes >= 50 && hours === 23)) {
-      
-      currentDayOfMonth = currentDayOfMonth + 1;
-      if (currentDayOfMonth !== nextDayOfMonth) {
-        currentDayOfMonth = nextDayOfMonth;
-         setTimeout(() => {
-         const next = document.querySelector(
-           "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
-         );
-         let currentMonthElement = document.querySelector("#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month");
-         let currentMonthName = currentMonthElement.innerText.split(" ")[0];
-         if (nextMonthName !== currentMonthName) {
-           next.dispatchEvent(clickEvent);
-       }
-       }, 1000);
-      }
-
-      newHours = 12;
-
-      if (hours === 24 && currentTimeInMinutes >= 50) {
-        newHours = 1
-      }
-      
-      period = "a";
-    } 
-    
-    
-    else if (hours < 24 || (currentTimeInMinutes < 50 && hours === 23) ) {
-      newHours = hours;
-
-        
-    if (currentTimeInMinutes >= 50) {
-      newHours = newHours + 1
-    }
-
-      if (newHours < 12) {
-        period = "a";
-      }
-
-      if (newHours == 12) {
-        period = "s";
-      }
-
-      if (newHours == 0) {
-        newHours = 12
-      }
-
-      if (newHours > 12) {
-        newHours = newHours - 12;
-        period = "s";
-      }
-    }
-  } else if (textInput.length > 6) {
-    let parts = textInput.split('_');
-    if (parts.length === 3) {
-        let getMonth = parseInt(parts[0]);
-        currentDayOfMonth = parseInt(parts[1]);
-        newHours = parseInt(parts[2].slice(0, -3));
-        newMinutes = parts[2].slice(-3, -1)
-        period = textInput[textInput.length - 1];
-        let currentMonth = currentDate.getMonth() + 1
-        let monthDifference = 0
-        if (getMonth < currentMonth) {
-          monthDifference =  12 - currentMonth + getMonth
-        }
-        else {
-          monthDifference = getMonth - currentMonth 
-        }
-	    setTimeout(function() {
-          const next3 = document.querySelector("#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next");
-          let i = 0;
-          function clickNext() {
-              if (i < monthDifference) {
-                  next3.dispatchEvent(clickEvent);
-                  i++;
-                  setTimeout(clickNext, 40);
-              }
-          }
-          clickNext();
-      }, 500);
-    }
-}
-  else if (textInput.length === 5 || textInput.length === 6) {
-    period = textInput[textInput.length - 1];
-    let increment = (textInput[0] === "w") ? 1 : (textInput[0] === "e") ? 2 : 0;
-    currentDayOfMonth += increment;
-
-    let targetDayOfMonth = (increment === 1) ? nextDayOfMonth : (increment === 2) ? dayAfterTomorrowDayOfMonth : currentDayOfMonth;
-
-    if (currentDayOfMonth !== targetDayOfMonth) {
-     currentDayOfMonth = targetDayOfMonth;
-      setTimeout(() => {
-      const next = document.querySelector(
-        "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
-      );
-      let currentMonthElement = document.querySelector("#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month");
-      let currentMonthName = currentMonthElement.innerText.split(" ")[0];
-      if (nextMonthName !== currentMonthName) {
-        next.dispatchEvent(clickEvent);
-    }
-    }, 1000);
-  }
-  }
-
-  if (textInput.length === 5) {
-    newHours = parseInt(textInput.substring(1, 2));
-    newMinutes = textInput.substring(2, 4);
-} else if (textInput.length === 6) {
-    newHours = parseInt(textInput.substring(1, 3));
-    newMinutes = textInput.substring(3, 5);
-}
-
-if (isApart && textInput.length !== 1 && textInput.length !== 2) {
-    let number = parseInt(browserType.replace(/\D/g, ''));
-    newHours = newHours + number - 1;
-    
-    // Если первая буква q (сегодня) и часы переходят за полночь
-    if (textInput[0] === 'q' && newHours >= 12 && period === 's') {
-        // Меняем на завтра (w)
-        currentDayOfMonth = currentDayOfMonth + 1;
-        if (currentDayOfMonth !== nextDayOfMonth) {
+            }
+          }, 1000);
+        } else if (
+          hours === 24 ||
+          (currentTimeInMinutes >= 50 && hours === 23)
+        ) {
+          currentDayOfMonth = currentDayOfMonth + 1;
+          if (currentDayOfMonth !== nextDayOfMonth) {
             currentDayOfMonth = nextDayOfMonth;
-        }
-        
-        if (newHours != 12) {
-          newHours = newHours - 12;
-        }
-        period = 'a';
-    }
-    // Если первая буква w (завтра) и часы переходят за полночь
-    else if (textInput[0] === 'w' && newHours >= 12 && period === 's') {
-        // Меняем на послезавтра (e)
-        currentDayOfMonth = currentDayOfMonth + 2;
-        if (currentDayOfMonth !== dayAfterTomorrowDayOfMonth) {
-            currentDayOfMonth = dayAfterTomorrowDayOfMonth;
-        }
-        
-        if (newHours != 12) {
-          newHours = newHours - 12;
-        }
-        period = 'a';
-    }
-    // Для остальных случаев просто корректируем время
-    else if (newHours > 12) {
-        newHours = newHours - 12;
-        if (period === 'a') {
-            period = 's';
-        }
-    }
-}
-
-  setTimeout(() => {
-      const divs = document.querySelectorAll(".vdatetime-calendar__month__day");
-      for (const div of divs) {
-        const span = div.querySelector("span span");
-        if (span && parseInt(span.innerText) === currentDayOfMonth) {
-          div.dispatchEvent(clickEvent);
-        }
-      }
-  }, 1000);
-
-
-  setTimeout(() => {
-
-    const button4 = document.querySelector("#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__tabs > div.vdatetime-popup__tab.time")
-    if (button4) {
-      button4.dispatchEvent(clickEvent);
-    }
-  }, 1000);
-
-  setTimeout(() => {
-    const container = document.querySelector(
-      "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--suffix",
-    );
-    if (container) {
-      const divs = container.querySelectorAll(
-        ".vdatetime-time-picker__item",
-      );
-
-      for (const div of divs) {
-        const text = div.innerText;
-        if (text === "AM" && period === "a") {
-          div.dispatchEvent(clickEvent);
-        }
-        if (text === "PM" && period === "s") {
-          div.dispatchEvent(clickEvent);
-        }
-      }
-    }
-  }, 1000);
-
-  setTimeout(() => {
-    const container = document.querySelector(
-      "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--hours",
-    );
-
-    if (container) {
-      const divs = container.querySelectorAll(".vdatetime-time-picker__item");
-
-      for (const div of divs) {
-        const number = parseInt(div.innerText);
-
-        if (!isNaN(number) && number === newHours) {
-          div.dispatchEvent(clickEvent);
-
-          if (newMinutes !== "") {
-
             setTimeout(() => {
-              const container2 = document.querySelector("#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--minutes")
-              if (container2) {
-                const divs = container2.querySelectorAll(
-                  ".vdatetime-time-picker__item",
-                );
-
-                for (const div of divs) {
-                  const text = div.innerText;
-                  if (text === newMinutes) {
-                    div.dispatchEvent(clickEvent);
-                  }
-                }
+              const next = document.querySelector(
+                "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
+              );
+              let currentMonthElement = document.querySelector(
+                "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month",
+              );
+              let currentMonthName =
+                currentMonthElement.innerText.split(" ")[0];
+              if (nextMonthName !== currentMonthName) {
+                next.dispatchEvent(clickEvent);
               }
-            }, 200);
+            }, 1000);
           }
 
-         setTimeout(() => {
-              const button5 = document.querySelector(
-                "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__actions > div.vdatetime-popup__actions__button.vdatetime-popup__actions__button--confirm > button",
-              );
-              if (button5) {
-                button5.click();
-              } 
-            }, 200);
-            break;
+          newHours = 12;
+
+          if (hours === 24 && currentTimeInMinutes >= 50) {
+            newHours = 1;
+          }
+
+          period = "a";
+        } else if (hours < 24 || (currentTimeInMinutes < 50 && hours === 23)) {
+          newHours = hours;
+
+          if (currentTimeInMinutes >= 50) {
+            newHours = newHours + 1;
+          }
+
+          if (newHours < 12) {
+            period = "a";
+          }
+
+          if (newHours == 12) {
+            period = "s";
+          }
+
+          if (newHours == 0) {
+            newHours = 12;
+          }
+
+          if (newHours > 12) {
+            newHours = newHours - 12;
+            period = "s";
+          }
+        }
+      } else if (textInput.length > 6) {
+        let parts = textInput.split("_");
+        if (parts.length === 3) {
+          let getMonth = parseInt(parts[0]);
+          currentDayOfMonth = parseInt(parts[1]);
+          newHours = parseInt(parts[2].slice(0, -3));
+          newMinutes = parts[2].slice(-3, -1);
+          period = textInput[textInput.length - 1];
+          let currentMonth = currentDate.getMonth() + 1;
+          let monthDifference = 0;
+          if (getMonth < currentMonth) {
+            monthDifference = 12 - currentMonth + getMonth;
+          } else {
+            monthDifference = getMonth - currentMonth;
+          }
+          setTimeout(function () {
+            const next3 = document.querySelector(
+              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
+            );
+            let i = 0;
+            function clickNext() {
+              if (i < monthDifference) {
+                next3.dispatchEvent(clickEvent);
+                i++;
+                setTimeout(clickNext, 40);
+              }
+            }
+            clickNext();
+          }, 500);
+        }
+      } else if (textInput.length === 5 || textInput.length === 6) {
+        period = textInput[textInput.length - 1];
+        let increment = textInput[0] === "w" ? 1 : textInput[0] === "e" ? 2 : 0;
+        currentDayOfMonth += increment;
+
+        let targetDayOfMonth =
+          increment === 1
+            ? nextDayOfMonth
+            : increment === 2
+              ? dayAfterTomorrowDayOfMonth
+              : currentDayOfMonth;
+
+        if (currentDayOfMonth !== targetDayOfMonth) {
+          currentDayOfMonth = targetDayOfMonth;
+          setTimeout(() => {
+            const next = document.querySelector(
+              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__navigation--next",
+            );
+            let currentMonthElement = document.querySelector(
+              "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-calendar__navigation > div.vdatetime-calendar__current--month",
+            );
+            let currentMonthName = currentMonthElement.innerText.split(" ")[0];
+            if (nextMonthName !== currentMonthName) {
+              next.dispatchEvent(clickEvent);
+            }
+          }, 1000);
         }
       }
+
+      if (textInput.length === 5) {
+        newHours = parseInt(textInput.substring(1, 2));
+        newMinutes = textInput.substring(2, 4);
+      } else if (textInput.length === 6) {
+        newHours = parseInt(textInput.substring(1, 3));
+        newMinutes = textInput.substring(3, 5);
+      }
+
+      if (isApart && textInput.length !== 1 && textInput.length !== 2) {
+        let number = parseInt(browserType.replace(/\D/g, ""));
+        newHours = newHours + number - 1;
+
+        if (textInput[0] === "q" && newHours >= 12 && period === "s") {
+          currentDayOfMonth = currentDayOfMonth + 1;
+          if (currentDayOfMonth !== nextDayOfMonth) {
+            currentDayOfMonth = nextDayOfMonth;
+          }
+
+          if (newHours != 12) {
+            newHours = newHours - 12;
+          }
+          period = "a";
+        }
+  
+        else if (textInput[0] === "w" && newHours >= 12 && period === "s") {
+          currentDayOfMonth = currentDayOfMonth + 2;
+          if (currentDayOfMonth !== dayAfterTomorrowDayOfMonth) {
+            currentDayOfMonth = dayAfterTomorrowDayOfMonth;
+          }
+
+          if (newHours != 12) {
+            newHours = newHours - 12;
+          }
+          period = "a";
+        }
+        else if (newHours > 12) {
+          newHours = newHours - 12;
+          if (period === "a") {
+            period = "s";
+          }
+        }
+      }
+
+      setTimeout(() => {
+        const divs = document.querySelectorAll(
+          ".vdatetime-calendar__month__day",
+        );
+        for (const div of divs) {
+          const span = div.querySelector("span span");
+          if (span && parseInt(span.innerText) === currentDayOfMonth) {
+            div.dispatchEvent(clickEvent);
+          }
+        }
+      }, 1000);
+
+      setTimeout(() => {
+        const button4 = document.querySelector(
+          "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__tabs > div.vdatetime-popup__tab.time",
+        );
+        if (button4) {
+          button4.dispatchEvent(clickEvent);
+        }
+      }, 1000);
+
+      setTimeout(() => {
+        const container = document.querySelector(
+          "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--suffix",
+        );
+        if (container) {
+          const divs = container.querySelectorAll(
+            ".vdatetime-time-picker__item",
+          );
+
+          for (const div of divs) {
+            const text = div.innerText;
+            if (text === "AM" && period === "a") {
+              div.dispatchEvent(clickEvent);
+            }
+            if (text === "PM" && period === "s") {
+              div.dispatchEvent(clickEvent);
+            }
+          }
+        }
+      }, 1000);
+
+      setTimeout(() => {
+        const container = document.querySelector(
+          "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--hours",
+        );
+
+        if (container) {
+          const divs = container.querySelectorAll(
+            ".vdatetime-time-picker__item",
+          );
+
+          for (const div of divs) {
+            const number = parseInt(div.innerText);
+
+            if (!isNaN(number) && number === newHours) {
+              div.dispatchEvent(clickEvent);
+
+              if (newMinutes !== "") {
+                setTimeout(() => {
+                  const container2 = document.querySelector(
+                    "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__body > div > div.vdatetime-time-picker__list.vdatetime-time-picker__list--minutes",
+                  );
+                  if (container2) {
+                    const divs = container2.querySelectorAll(
+                      ".vdatetime-time-picker__item",
+                    );
+
+                    for (const div of divs) {
+                      const text = div.innerText;
+                      if (text === newMinutes) {
+                        div.dispatchEvent(clickEvent);
+                      }
+                    }
+                  }
+                }, 200);
+              }
+
+              setTimeout(() => {
+                const button5 = document.querySelector(
+                  "#make_post_form > div.vdatetime.b-datepicker-input.custom-datepicker > div > div.vdatetime-popup.m-vdatetime-tabs > div.vdatetime-popup__actions > div.vdatetime-popup__actions__button.vdatetime-popup__actions__button--confirm > button",
+                );
+                if (button5) {
+                  button5.click();
+                }
+              }, 200);
+              break;
+            }
+          }
+        }
+      }, 1000);
     }
-  }, 1000);
-}
-const intervalId = setInterval(checkButtonsAndContinue, 200);
-}
-catch (error) {
-  console.log("Error: ", error)
-}
+    const intervalId = setInterval(checkButtonsAndContinue, 200);
+  } catch (error) {
+    console.log("Error: ", error);
+  }
 }
 
 function listenForButtonClicks(arg, tabId) {
-  const button1 = document.querySelector("#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button:nth-child(2)");
-  const button2 = document.querySelector("#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button");
+  const button1 = document.querySelector(
+    "#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button:nth-child(2)",
+  );
+  const button2 = document.querySelector(
+    "#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button",
+  );
 
   if (!button1 && !button2) {
     return;
@@ -1325,29 +1470,28 @@ function listenForButtonClicks(arg, tabId) {
         'a[data-name="PostsCreate"][href="/posts/create"]',
       );
       if (anchorElement) {
-        if (!anchorElement.classList.contains('m-disabled')) {
-            anchorElement.click();
-            if (tabId) {
-              tabId = tabId.toString();
-              chrome.storage.local.set({[tabId]: true});
+        if (!anchorElement.classList.contains("m-disabled")) {
+          anchorElement.click();
+          if (tabId) {
+            tabId = tabId.toString();
+            chrome.storage.local.set({ [tabId]: true });
           }
-            clearInterval(intervalId);
-        }
-        else {
+          clearInterval(intervalId);
+        } else {
           disabledCount++;
           if (disabledCount >= 10) {
             clearInterval(intervalId);
           }
         }
       }
-    }, 1000); 
+    }, 1000);
   }
 
   function handleClick() {
     if (this._clickListenerAdded) {
-      timeoutId = setTimeout(function() {
+      timeoutId = setTimeout(function () {
         clickPost(tabId);
-    }, 500);
+      }, 500);
     }
   }
 
@@ -1356,11 +1500,11 @@ function listenForButtonClicks(arg, tabId) {
       if (arg === false) {
         if (timeoutId) clearTimeout(timeoutId);
         if (button._clickListenerAdded) {
-          button.removeEventListener('click', handleClick);
+          button.removeEventListener("click", handleClick);
           button._clickListenerAdded = false;
         }
       } else if (arg === true && !button._clickListenerAdded) {
-        button.addEventListener('click', handleClick);
+        button.addEventListener("click", handleClick);
         button._clickListenerAdded = true;
       }
     }
@@ -1370,59 +1514,66 @@ function listenForButtonClicks(arg, tabId) {
 
 let lastTabId;
 
-chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
-  if (changeInfo.status === 'complete' && tab.url === 'https://onlyfans.com/posts/create' && tabId !== lastTabId) {
-      lastTabId = tabId;
-      chrome.storage.local.get(['lastRequestTime'], function(result) {
-          var lastRequestTime = result.lastRequestTime ? new Date(result.lastRequestTime) : null;
-          var currentTime = new Date();
-          var timeDifference = currentTime - lastRequestTime;
-          if (!lastRequestTime || timeDifference >= 12 * 60 * 60 * 1000) { 
-              chrome.scripting.executeScript({
-                  target: { tabId: tab.id },
-                  args: [currentTime.toString()],
-                  function: function(currentTime) {
-                      const observer = new MutationObserver(function() {
-                          const usernameDiv = document.querySelector('.g-user-username');
-                          if (usernameDiv) {
-                              const username = usernameDiv.innerText;
-                              if (username) {
-                                  observer.disconnect();
-                                  fetch('http://localhost:3000/checkInfo', {
-                                      method: 'POST',
-                                      headers: {
-                                          'Content-Type': 'application/json',
-                                      },
-                                      body: JSON.stringify({
-                                          username: username
-                                      }),
-                                  })
-                                  .then(response => {
-                                      if (response.ok) {
-                                          chrome.storage.local.set({lastRequestTime: currentTime});
-                                      }
-                                  })
-                              }
-                          }
+chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+  if (
+    changeInfo.status === "complete" &&
+    tab.url === "https://onlyfans.com/posts/create" &&
+    tabId !== lastTabId
+  ) {
+    lastTabId = tabId;
+    chrome.storage.local.get(["lastRequestTime"], function (result) {
+      var lastRequestTime = result.lastRequestTime
+        ? new Date(result.lastRequestTime)
+        : null;
+      var currentTime = new Date();
+      var timeDifference = currentTime - lastRequestTime;
+      if (!lastRequestTime || timeDifference >= 12 * 60 * 60 * 1000) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          args: [currentTime.toString()],
+          function: function (currentTime) {
+            const observer = new MutationObserver(function () {
+              const usernameDiv = document.querySelector(".g-user-username");
+              if (usernameDiv) {
+                const username = usernameDiv.innerText;
+                if (username) {
+                  observer.disconnect();
+                  fetch("http://localhost:3000/checkInfo", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      username: username,
+                    }),
+                  }).then((response) => {
+                    if (response.ok) {
+                      chrome.storage.local.set({
+                        lastRequestTime: currentTime,
                       });
-                      observer.observe(document.body, { childList: true, subtree: true });
-                  }
-              });
-          }
-      });
+                    }
+                  });
+                }
+              }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+          },
+        });
+      }
+    });
   }
 });
 
 function sendActivityInfo(browser) {
-  fetch('http://localhost:3000/activity', {
-      method: 'POST',
-      headers: {
-          'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ browser }),
+  fetch("http://localhost:3000/activity", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ browser }),
   })
-  .then(response => response.text())
-  .catch(error => console.error('Error:', error));
+    .then((response) => response.text())
+    .catch((error) => console.error("Error:", error));
 }
 
 async function checkDataFile() {
@@ -1444,7 +1595,7 @@ async function checkDataFile() {
     "browser14Checked",
     "browser15Checked",
     "postChecked",
-    "fixChecked"
+    "fixChecked",
   ]);
 
   const browser1 = result.browser1Checked;
@@ -1462,10 +1613,10 @@ async function checkDataFile() {
   const browser13 = result.browser13Checked;
   const browser14 = result.browser14Checked;
   const browser15 = result.browser15Checked;
-  const instantPost = result.postChecked
+  const instantPost = result.postChecked;
 
   try {
-    if (typeof instantPost === 'boolean') {
+    if (typeof instantPost === "boolean") {
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1473,7 +1624,7 @@ async function checkDataFile() {
           func: listenForButtonClicks,
           args: [instantPost, activeTab.id],
         });
-      });  
+      });
     }
 
     const response = await fetch(dataFileURL);
@@ -1487,18 +1638,18 @@ async function checkDataFile() {
         (browser1 && !entry.browser1) ||
         (browser2 && !entry.browser2) ||
         (browser3 && !entry.browser3) ||
-        (browser4 && !entry.browser4) || 
-        (browser5 && !entry.browser5) || 
-        (browser6 && !entry.browser6) || 
+        (browser4 && !entry.browser4) ||
+        (browser5 && !entry.browser5) ||
+        (browser6 && !entry.browser6) ||
         (browser7 && !entry.browser7) ||
-        (browser8 && !entry.browser8) || 
+        (browser8 && !entry.browser8) ||
         (browser9 && !entry.browser9) ||
         (browser10 && !entry.browser10) ||
         (browser11 && !entry.browser11) ||
         (browser12 && !entry.browser12) ||
         (browser13 && !entry.browser13) ||
         (browser14 && !entry.browser14) ||
-        (browser15 && !entry.browser15) 
+        (browser15 && !entry.browser15)
       ) {
         lastEntry = entry;
         lastIndex = i;
@@ -1507,7 +1658,7 @@ async function checkDataFile() {
     }
 
     let browserType = "";
-    var isApart = false
+    var isApart = false;
 
     if (lastEntry) {
       if (browser1 && !lastEntry.browser1) {
@@ -1523,37 +1674,38 @@ async function checkDataFile() {
       } else if (browser6 && !lastEntry.browser6) {
         browserType = "browser6";
       } else if (browser7 && !lastEntry.browser7) {
-      browserType = "browser7";
+        browserType = "browser7";
       } else if (browser8 && !lastEntry.browser8) {
-      browserType = "browser8"; }
-      else if (browser9 && !lastEntry.browser9) {
-        browserType = "browser9"; }
-      else if (browser10 && !lastEntry.browser10) {
-        browserType = "browser10"; }
-      else if (browser11 && !lastEntry.browser11) {
-        browserType = "browser11"; }
-      else if (browser12 && !lastEntry.browser12) {
-        browserType = "browser12"; }
-      else if (browser13 && !lastEntry.browser13) {
-        browserType = "browser13"; }
-      else if (browser14 && !lastEntry.browser14) {
-        browserType = "browser14"; }
-      else if (browser15 && !lastEntry.browser15) {
-        browserType = "browser15"; }
+        browserType = "browser8";
+      } else if (browser9 && !lastEntry.browser9) {
+        browserType = "browser9";
+      } else if (browser10 && !lastEntry.browser10) {
+        browserType = "browser10";
+      } else if (browser11 && !lastEntry.browser11) {
+        browserType = "browser11";
+      } else if (browser12 && !lastEntry.browser12) {
+        browserType = "browser12";
+      } else if (browser13 && !lastEntry.browser13) {
+        browserType = "browser13";
+      } else if (browser14 && !lastEntry.browser14) {
+        browserType = "browser14";
+      } else if (browser15 && !lastEntry.browser15) {
+        browserType = "browser15";
+      }
 
-      isApart = lastEntry.isApart
-      isDelete = lastEntry.isDelete
+      isApart = lastEntry.isApart;
+      isDelete = lastEntry.isDelete;
     }
 
-      function validateDelete(answer) {
-          const pattern = /^(del|вуд)-?\d+$/;
-          return pattern.test(answer);
-      }
-      
-      function validateSwitch(answer) {
-        const pattern = /^(sw|ыц|іц)-?\d+$/;
-        return pattern.test(answer);
-      }
+    function validateDelete(answer) {
+      const pattern = /^(del|вуд)-?\d+$/;
+      return pattern.test(answer);
+    }
+
+    function validateSwitch(answer) {
+      const pattern = /^(sw|ыц|іц)-?\d+$/;
+      return pattern.test(answer);
+    }
 
     function extractNumber(textInput) {
       const pattern = /-?\d+/;
@@ -1563,7 +1715,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "11" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         if (lastEntry.textInput === "clear") {
@@ -1571,96 +1723,103 @@ async function checkDataFile() {
             target: { tabId: activeTab.id },
             func: clearPosts,
           });
-        }
-        else if (lastEntry.textInput === "reset") {
-          updateTabCounterOnActiveTab(true)
-          return
-        }
-        else if (lastEntry.textInput === "hide") {
-          timerVisibility = false
-          return
-        }
-        else if (lastEntry.textInput === "show") {
-          timerVisibility = true
-          return
-        }
-        else if (lastEntry.textInput === "checkActivity") {
-          sendActivityInfo(browserType)
-          return
-        }
-        else if (lastEntry.textInput === "open") {
+        } else if (lastEntry.textInput === "reset") {
+          updateTabCounterOnActiveTab(true);
+          return;
+        } else if (lastEntry.textInput === "hide") {
+          timerVisibility = false;
+          return;
+        } else if (lastEntry.textInput === "show") {
+          timerVisibility = true;
+          return;
+        } else if (lastEntry.textInput === "checkActivity") {
+          sendActivityInfo(browserType);
+          return;
+        } else if (lastEntry.textInput === "open") {
           await executeScriptIfValid(activeTab, {
             target: { tabId: activeTab.id },
             func: openNewTab,
           });
-          return
-        }
-        else if (lastEntry.textInput === "check") {
+          return;
+        } else if (lastEntry.textInput === "check") {
           await executeScriptIfValid(activeTab, {
             target: { tabId: activeTab.id },
             func: checkModels,
           });
-          return
-        }
-        else if (lastEntry.textInput === "search") {
+          return;
+        } else if (lastEntry.textInput === "search") {
           await executeScriptIfValid(activeTab, {
             target: { tabId: activeTab.id },
             func: searchPosts,
           });
-          return
-        }
-        else if (validateDelete(lastEntry.textInput)) {
+          return;
+        } else if (validateDelete(lastEntry.textInput)) {
           const number = extractNumber(lastEntry.textInput);
           new Promise((resolve) => {
-              chrome.tabs.query({currentWindow: true, active: true}, function(tabs) {
-                  resolve(tabs[0].index);
-              });
-          }).then(currentTabIndex => {
-              chrome.tabs.query({}, function(tabs) {
-                  
-                  let tabsToClose = [];
-                  if (number > 0) {
-                      tabsToClose = tabs.slice(currentTabIndex + 1, currentTabIndex + 1 + number)
-                          .filter(tab => tab.url.startsWith('https://onlyfans.com')) // Фильтруем по URL
-                          .map(tab => tab.id);
-                  } else if (number < 0) {
-                      tabsToClose = tabs.slice(Math.max(0, currentTabIndex + number), currentTabIndex)
-                          .filter(tab => tab.url.startsWith('https://onlyfans.com')) // Фильтруем по URL
-                          .map(tab => tab.id);
-                  } else if (number === 0 && tabs.length > 1) {
-                      if (tabs[currentTabIndex].url.startsWith('https://onlyfans.com')) {
-                          chrome.tabs.remove(tabs[currentTabIndex].id);
-                      }
-                      return;
-                  }
-      
-                  if (tabsToClose.length > 0) {
-                      chrome.tabs.remove(tabsToClose);
-                  }
-              });
-          });
-      }
-      else if (validateSwitch(lastEntry.textInput)) {
-        const number = extractNumber(lastEntry.textInput);
-        new Promise((resolve) => {
-            chrome.tabs.query({currentWindow: true, active: true}, function(tabs) {
+            chrome.tabs.query(
+              { currentWindow: true, active: true },
+              function (tabs) {
                 resolve(tabs[0].index);
-            });
-        }).then(currentTabIndex => {
-            chrome.tabs.query({}, function(tabs) {
-                let targetIndex = number > 0 ? Math.min(tabs.length - 1, currentTabIndex + number) : 
-                                number < 0 ? Math.max(0, currentTabIndex + number) : 
-                                tabs.length > 1 ? 0 : currentTabIndex;
-                while (targetIndex < tabs.length && !tabs[targetIndex].url.startsWith('https://onlyfans.com')) {
-                    targetIndex++;
+              },
+            );
+          }).then((currentTabIndex) => {
+            chrome.tabs.query({}, function (tabs) {
+              let tabsToClose = [];
+              if (number > 0) {
+                tabsToClose = tabs
+                  .slice(currentTabIndex + 1, currentTabIndex + 1 + number)
+                  .filter((tab) => tab.url.startsWith("https://onlyfans.com")) 
+                  .map((tab) => tab.id);
+              } else if (number < 0) {
+                tabsToClose = tabs
+                  .slice(Math.max(0, currentTabIndex + number), currentTabIndex)
+                  .filter((tab) => tab.url.startsWith("https://onlyfans.com")) 
+                  .map((tab) => tab.id);
+              } else if (number === 0 && tabs.length > 1) {
+                if (
+                  tabs[currentTabIndex].url.startsWith("https://onlyfans.com")
+                ) {
+                  chrome.tabs.remove(tabs[currentTabIndex].id);
                 }
-                if (targetIndex < tabs.length) {
-                    chrome.tabs.update(tabs[targetIndex].id, {active: true});
-                }
+                return;
+              }
+
+              if (tabsToClose.length > 0) {
+                chrome.tabs.remove(tabsToClose);
+              }
             });
-        });
-    }
-        else {
+          });
+        } else if (validateSwitch(lastEntry.textInput)) {
+          const number = extractNumber(lastEntry.textInput);
+          new Promise((resolve) => {
+            chrome.tabs.query(
+              { currentWindow: true, active: true },
+              function (tabs) {
+                resolve(tabs[0].index);
+              },
+            );
+          }).then((currentTabIndex) => {
+            chrome.tabs.query({}, function (tabs) {
+              let targetIndex =
+                number > 0
+                  ? Math.min(tabs.length - 1, currentTabIndex + number)
+                  : number < 0
+                    ? Math.max(0, currentTabIndex + number)
+                    : tabs.length > 1
+                      ? 0
+                      : currentTabIndex;
+              while (
+                targetIndex < tabs.length &&
+                !tabs[targetIndex].url.startsWith("https://onlyfans.com")
+              ) {
+                targetIndex++;
+              }
+              if (targetIndex < tabs.length) {
+                chrome.tabs.update(tabs[targetIndex].id, { active: true });
+              }
+            });
+          });
+        } else {
           await executeScriptIfValid(activeTab, {
             target: { tabId: activeTab.id },
             func: clickOnNewPost,
@@ -1668,46 +1827,47 @@ async function checkDataFile() {
         }
       });
     }
-    
-    if (lastEntry && lastEntry.id === "12" && browserType !== "") {
 
+    if (lastEntry && lastEntry.id === "12" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       const text = lastEntry.textInput;
-      let exp = lastEntry.exp
-      let txt = lastEntry.txt
-      let pht = lastEntry.pht
-      let addPhoto = lastEntry.addPhoto
-      let imageUrl = '-'
-      let index = 0
-      let totalIndex = 0
-      let repeat = lastEntry.repeat
+      let exp = lastEntry.exp;
+      let txt = lastEntry.txt;
+      let pht = lastEntry.pht;
+      let addPhoto = lastEntry.addPhoto;
+      let imageUrl = "-";
+      let index = 0;
+      let totalIndex = 0;
+      let repeat = lastEntry.repeat;
       if (addPhoto) {
-        index = lastEntry.index
-        totalIndex = lastEntry.totalIndex
-        let pattern = text.match(/@[a-zA-Z0-9._-]+/)[0];  // Берём только разрешенные символы после @
-        pattern = pattern.substring(1);  // Убираем @
-        if (pattern.endsWith('.')) {
-            pattern = pattern.replace(/\.*$/, '');  // Убираем точку в конце
+        index = lastEntry.index;
+        totalIndex = lastEntry.totalIndex;
+        let pattern = text.match(/@[a-zA-Z0-9._-]+/)[0]; 
+        pattern = pattern.substring(1);
+        if (pattern.endsWith(".")) {
+          pattern = pattern.replace(/\.*$/, ""); 
         }
-        pattern = pattern.replace(/\./g, '-');  // Заменяем точки на дефисы
+        pattern = pattern.replace(/\./g, "-"); 
         async function findCorrectImageUrl(pattern) {
           const extensions = ["png", "gif", "mp4"];
           for (const ext of extensions) {
-              const url = chrome.runtime.getURL(`server/crop/images/${pattern}.${ext}`);
-              try {
-                  const response = await fetch(url, { method: 'HEAD' });
-                  if (response.ok) {
-                      return url;
-                  }
-              } catch (e) {
-                  continue;
+            const url = chrome.runtime.getURL(
+              `server/crop/images/${pattern}.${ext}`,
+            );
+            try {
+              const response = await fetch(url, { method: "HEAD" });
+              if (response.ok) {
+                return url;
               }
+            } catch (e) {
+              continue;
+            }
           }
-      
+
           return null;
-       }
-      
+        }
+
         imageUrl = await findCorrectImageUrl(pattern);
         chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
           const activeTab = currentWindow.tabs.find((tab) => tab.active);
@@ -1728,10 +1888,10 @@ async function checkDataFile() {
         });
       });
     }
-    
+
     if (lastEntry && lastEntry.id === "14" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1743,7 +1903,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "15" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1755,7 +1915,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "19" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1768,7 +1928,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "100" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1780,7 +1940,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "101" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1792,7 +1952,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "102" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1804,7 +1964,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "103" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1816,16 +1976,12 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "104" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-      
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
-        // Получаем все вкладки в текущем окне
         const allTabs = currentWindow.tabs;
-        
-        // Находим текущую активную вкладку
         const activeTab = allTabs.find((tab) => tab.active);
-    
+
         if (activeTab) {
-          // Применяем стили ко всем вкладкам начиная с текущей и дальше
           allTabs.forEach(async (tab) => {
             if (tab.index >= activeTab.index) {
               await executeScriptIfValid(tab, {
@@ -1841,10 +1997,12 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "20" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
-        const previousTab = currentWindow.tabs.find((tab) => tab.index === activeTab.index - 1);
+        const previousTab = currentWindow.tabs.find(
+          (tab) => tab.index === activeTab.index - 1,
+        );
         await executeScriptIfValid(activeTab, {
           target: { tabId: activeTab.id },
           func: rememberId,
@@ -1855,82 +2013,98 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "21" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
+
+      chrome.storage.local.get(
+        ["savedTabId", "deleteTabId"],
+        async function (result) {
+          if (result.savedTabId) {
+            chrome.tabs.update(
+              result.savedTabId,
+              { active: true },
+              async () => {
+                chrome.windows.getCurrent(
+                  { populate: true },
+                  async (currentWindow) => {
+                    const allTabs = currentWindow.tabs;
+                    const activeTab = allTabs.find((tab) => tab.active);
+
+                    if (activeTab) {
+                      if (isDelete) {
+                        const tabsToClose = allTabs.filter(
+                          (tab) => tab.index > activeTab.index,
+                        );
+
+                        for (const tab of tabsToClose) {
+                          await chrome.scripting.executeScript({
+                            target: { tabId: tab.id },
+                            func: () => {
+                              const button =
+                                document.querySelector("#split-button1");
+                              if (button) {
     
-      chrome.storage.local.get(['savedTabId', 'deleteTabId'], async function(result) {
-        if (result.savedTabId) {
-          chrome.tabs.update(result.savedTabId, { active: true }, async () => {
-            chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
-              const allTabs = currentWindow.tabs;
-              const activeTab = allTabs.find((tab) => tab.active);
-              
-              if (activeTab) {
-                if (isDelete) {
-                const tabsToClose = allTabs.filter(tab => tab.index > activeTab.index);
-    
-                for (const tab of tabsToClose) {
-                  // Нажимаем на левую часть кнопки #split-button1
-                  await chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    func: () => {
-                      const button = document.querySelector('#split-button1');
-                      if (button) {
-                        // Эмулируем клик на левую часть кнопки
-                        const rect = button.getBoundingClientRect();
-                        const leftPartX = rect.left + 5; // Немного смещаемся вправо от левого края
-                        const leftPartY = rect.top + rect.height / 2; // Центр по вертикали
-                        
-                        button.dispatchEvent(new MouseEvent('click', {
-                          bubbles: true,
-                          cancelable: true,
-                          clientX: leftPartX,
-                          clientY: leftPartY
-                        }));
+                                const rect = button.getBoundingClientRect();
+                                const leftPartX = rect.left + 5; 
+                                const leftPartY = rect.top + rect.height / 2; 
+
+                                button.dispatchEvent(
+                                  new MouseEvent("click", {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    clientX: leftPartX,
+                                    clientY: leftPartY,
+                                  }),
+                                );
+                              }
+                            },
+                          });
+                        }
+                        await new Promise((resolve) =>
+                          setTimeout(resolve, 1000),
+                        );
+  
+                        const tabIdsToClose = tabsToClose.map((tab) => tab.id);
+                        if (tabIdsToClose.length > 0) {
+                          chrome.tabs.remove(tabIdsToClose);
+                        }
+
+                        await executeScriptIfValid(activeTab, {
+                          target: { tabId: activeTab.id },
+                          func: clearPosts,
+                        });
+                      }
+
+                      const fakeCheckedResult =
+                        await chrome.storage.sync.get("fakeChecked");
+                      if (fakeCheckedResult.fakeChecked === true) {
+                        allTabs.forEach(async (tab) => {
+                          if (tab.index >= activeTab.index) {
+                            await new Promise((resolve) =>
+                              setTimeout(resolve, FAKE_SS_DELAY),
+                            );
+                            await executeScriptIfValid(tab, {
+                              target: { tabId: tab.id },
+                              func: toggleColors,
+                            });
+                          }
+                        });
                       }
                     }
-                  });
-                }
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                // Закрываем вкладки после кликов
-                const tabIdsToClose = tabsToClose.map(tab => tab.id);
-                if (tabIdsToClose.length > 0) {
-                  chrome.tabs.remove(tabIdsToClose);
-                }
-    
-                // Выполняем дополнительный скрипт для активной вкладки, если нужно
-                await executeScriptIfValid(activeTab, {
-                  target: { tabId: activeTab.id },
-                  func: clearPosts,
-                });
-              }
-    
-                // Если включен fakeChecked, меняем цвета вкладок
-                const fakeCheckedResult = await chrome.storage.sync.get('fakeChecked');
-                if (fakeCheckedResult.fakeChecked === true) {
-                  allTabs.forEach(async (tab) => {
-                    if (tab.index >= activeTab.index) {
-                      await new Promise(resolve => setTimeout(resolve, FAKE_SS_DELAY));
-                      await executeScriptIfValid(tab, {
-                        target: { tabId: tab.id },
-                        func: toggleColors,
-                      });
-                    }
-                  });
-                }
-              }
-            });
-          });
-        }
-    
-        if (result.deleteTabId) {
-          chrome.tabs.remove(result.deleteTabId);
-        }
-      });
+                  },
+                );
+              },
+            );
+          }
+
+          if (result.deleteTabId) {
+            chrome.tabs.remove(result.deleteTabId);
+          }
+        },
+      );
     }
-    
 
     if (lastEntry && lastEntry.id === "16" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1942,7 +2116,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "17" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-    
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1954,7 +2128,7 @@ async function checkDataFile() {
 
     if (lastEntry && lastEntry.id === "18" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
-      
+
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
@@ -1963,11 +2137,11 @@ async function checkDataFile() {
         });
       });
     }
-    
+
     if (lastEntry && lastEntry.id === "13" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
       if (!isApart) {
-        isApart = false
+        isApart = false;
       }
       const text = lastEntry.textInput;
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
@@ -1985,23 +2159,27 @@ async function checkDataFile() {
 }
 
 async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
-  if (tab.active && !tab.url.startsWith('chrome://')) {
+  if (tab.active && !tab.url.startsWith("chrome://")) {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: function(DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
+      func: function (DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         let observer = new MutationObserver((mutations) => {
           mutations.forEach((mutation) => {
-              if (mutation.addedNodes.length) {
-                  let elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip');
-                  if (elements.length) {
-                      let button = document.querySelector("#ModalAlert___BV_modal_footer_ > button");
-                      if (button) button.click();
-                  }
+            if (mutation.addedNodes.length) {
+              let elements = document.querySelectorAll(
+                ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip",
+              );
+              if (elements.length) {
+                let button = document.querySelector(
+                  "#ModalAlert___BV_modal_footer_ > button",
+                );
+                if (button) button.click();
               }
+            }
           });
-      });
-      
-      observer.observe(document.body, { childList: true, subtree: true });
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
 
         async function animateButton(button, buttonText, callback) {
           button.style.transform = "scaleX(0.9)";
@@ -2022,9 +2200,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ delay }), // Передаем задержку в теле запроса
+              body: JSON.stringify({ delay }), 
             });
-        
+
             if (response.ok) {
               console.log("Data sent successfully to the server");
             } else {
@@ -2034,15 +2212,15 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             console.error("Error:", error);
           }
         }
-        
+
         async function clearRequestLeft() {
           await makeRequest("http://localhost:3000/clearPhotoAll", 0);
         }
-        
+
         async function clearRequestRight() {
           await makeRequest("http://localhost:3000/clearPhotoSingle", 0);
         }
-        
+
         async function bindRequest() {
           await makeRequest("http://localhost:3000/bind", DELAY_GREEN_BUTTON);
         }
@@ -2052,173 +2230,192 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         }
 
         async function bindFixRequest() {
-          await makeRequest("http://localhost:3000/bindFix", DELAY_BEFORE_OPENING_NEW_TAB);
+          await makeRequest(
+            "http://localhost:3000/bindFix",
+            DELAY_BEFORE_OPENING_NEW_TAB,
+          );
         }
-        
+
         async function pasteRequest() {
           await makeRequest("http://localhost:3000/paste", 0);
-      }
+        }
 
         async function fakeRequest() {
           await makeRequest("http://localhost:3000/fake", 0);
         }
 
-      async function updatePostIndicator(postIndicatorButton) {
-        const postStorageResult = await chrome.storage.sync.get(['postChecked']);
-        if (postStorageResult.postChecked === true) {
-          postIndicatorButton.style.background = "#2D9B37"; // Зеленый цвет
-        } else {
-          postIndicatorButton.style.background = "#DD6D55"; // Красный цвет
+        async function updatePostIndicator(postIndicatorButton) {
+          const postStorageResult = await chrome.storage.sync.get([
+            "postChecked",
+          ]);
+          if (postStorageResult.postChecked === true) {
+            postIndicatorButton.style.background = "#2D9B37";
+          } else {
+            postIndicatorButton.style.background = "#DD6D55"; 
+          }
         }
-      }
 
-      async function updateFakeIndicator(fakeIndicatorButton) {
-        const fakeStorageResult = await chrome.storage.sync.get(['fakeChecked']);
-        if (fakeStorageResult.fakeChecked === true) {
-          fakeIndicatorButton.style.background = "#6E8C6E"; // Зеленый с серым
-        } else {
-          fakeIndicatorButton.style.background = "#8C6E6E"; // Красный с серым
+        async function updateFakeIndicator(fakeIndicatorButton) {
+          const fakeStorageResult = await chrome.storage.sync.get([
+            "fakeChecked",
+          ]);
+          if (fakeStorageResult.fakeChecked === true) {
+            fakeIndicatorButton.style.background = "#6E8C6E"; 
+          } else {
+            fakeIndicatorButton.style.background = "#8C6E6E";
+          }
         }
-      }
 
-      async function togglePostIndicator() {
-        const postStorageResult = await chrome.storage.sync.get(['postChecked']);
-        const currentPostChecked = postStorageResult.postChecked;
-        
-        if (currentPostChecked === true) {
+        async function togglePostIndicator() {
+          const postStorageResult = await chrome.storage.sync.get([
+            "postChecked",
+          ]);
+          const currentPostChecked = postStorageResult.postChecked;
+
+          if (currentPostChecked === true) {
             await makeRequest("http://localhost:3000/post-off", 0);
-        } else {
+          } else {
             await makeRequest("http://localhost:3000/post-on", 0);
+          }
         }
-    }
 
-    async function toggleFakeIndicator() {
-      const fakeStorageResult = await chrome.storage.sync.get(['fakeChecked']);
-      const currentFakeChecked = fakeStorageResult.fakeChecked;
-      
-      if (currentFakeChecked === true) {
-          await makeRequest("http://localhost:3000/fake-off", 0);
-      } else {
-          await makeRequest("http://localhost:3000/fake-on", 0);
-      }
-    }
+        async function toggleFakeIndicator() {
+          const fakeStorageResult = await chrome.storage.sync.get([
+            "fakeChecked",
+          ]);
+          const currentFakeChecked = fakeStorageResult.fakeChecked;
 
-      function createFakeColorsButton(container) {
-        const fakeColorsBtn = document.createElement("button");
-        fakeColorsBtn.style.position = 'absolute'
-        fakeColorsBtn.style.right = '10%'
-        fakeColorsBtn.style.background = "grey"
-        fakeColorsBtn.style.width = "15%";
-        fakeColorsBtn.style.border = "none";
-        fakeColorsBtn.style.display = "flex";
-        fakeColorsBtn.style.justifyContent = "center";
-        fakeColorsBtn.style.alignItems = "center";
-        fakeColorsBtn.style.cursor = "pointer";
-        fakeColorsBtn.style.padding = "5px 5px 5px 5px";
-        fakeColorsBtn.style.borderRadius = "10px";
-        fakeColorsBtn.style.transition = "background 0.5s ease";
-        fakeColorsBtn.id = 'fakeButton'
-        container.appendChild(fakeColorsBtn);
-        return fakeColorsBtn
-      }
-
-      function createFakeMakeButton(container) {
-        const fakeMakeBtn = document.createElement("button");
-        fakeMakeBtn.style.position = 'absolute'
-        fakeMakeBtn.style.right = '10px'
-        fakeMakeBtn.style.width = "10px";
-        fakeMakeBtn.style.bottom = '16px'
-        fakeMakeBtn.style.height = "76px";
-        fakeMakeBtn.style.background = "grey"
-        fakeMakeBtn.style.border = "none";
-        fakeMakeBtn.style.display = "flex";
-        fakeMakeBtn.style.justifyContent = "center";
-        fakeMakeBtn.style.alignItems = "center";
-        fakeMakeBtn.style.cursor = "pointer";
-        fakeMakeBtn.style.padding = "5px 5px 5px 5px";
-        fakeMakeBtn.style.borderRadius = "10px";
-        fakeMakeBtn.style.transition = "background 0.5s ease";
-        fakeMakeBtn.style.zIndex = "9999999"
-        fakeMakeBtn.id = 'fakeMakeButton'
-        container.appendChild(fakeMakeBtn);
-        return fakeMakeBtn
-      }
-
-      function createIndicatorButton(container, color = "#DD6D55") {
-        const indicatorButton = document.createElement("button");
-        indicatorButton.style.background = color;
-        indicatorButton.style.width = "20%";
-        indicatorButton.style.padding = "5px 0px 5px 0px";
-        indicatorButton.style.border = "none";
-        indicatorButton.style.cursor = "pointer";
-        indicatorButton.style.borderRadius = "10px";
-        indicatorButton.style.display = "flex";
-        indicatorButton.style.justifyContent = "center";
-        indicatorButton.style.alignItems = "center";
-        indicatorButton.style.transition = "background 0.5s ease";
-        indicatorButton.id = 'instantPost'
-        container.appendChild(indicatorButton);
-        return indicatorButton
-      }
-        
-      function createButton(container, text, callback, color = "", id = "") {
-        let link = document.createElement('link');
-        link.href = 'https://fonts.googleapis.com/css2?family=Josefin+Sans&display=swap';
-        link.rel = 'stylesheet';
-        document.head.appendChild(link);
-    
-        const buttonWrapper = document.createElement("div");
-        buttonWrapper.style.width = "33%";
-   
-        buttonWrapper.style.margin = "5px";
-        buttonWrapper.style.display = "flex";
-        buttonWrapper.style.justifyContent = "center";
-        buttonWrapper.style.alignItems = "center";
-    
-        const button = document.createElement("button");
-        button.id = id;
-        button.style.background = color;
-        button.style.color = "white";
-        button.style.padding = "10px 0px 5px 0px";
-        button.style.border = "none";
-        button.style.cursor = "pointer";
-        button.style.borderRadius = "10px";
-        button.style.width = "100%";
-        button.style.display = "flex";
-        button.style.justifyContent = "center";
-        button.style.alignItems = "center";
-        button.style.transition = "background 0.5s ease";
-        button.style.fontWeight = "bold"
-        button.style.fontSize = "16px"
-        button.style.height = "50px"
-        button.onmouseover = function() {
-          this.style.background = "#6c757d"; 
-          this.style.transition = "all 0.5s ease";
+          if (currentFakeChecked === true) {
+            await makeRequest("http://localhost:3000/fake-off", 0);
+          } else {
+            await makeRequest("http://localhost:3000/fake-on", 0);
+          }
         }
-        
-        button.onmouseout = function() {
-          this.style.background = color;
-          this.style.transition = "all 0.5s ease";
+
+        function createFakeColorsButton(container) {
+          const fakeColorsBtn = document.createElement("button");
+          fakeColorsBtn.style.position = "absolute";
+          fakeColorsBtn.style.right = "10%";
+          fakeColorsBtn.style.background = "grey";
+          fakeColorsBtn.style.width = "15%";
+          fakeColorsBtn.style.border = "none";
+          fakeColorsBtn.style.display = "flex";
+          fakeColorsBtn.style.justifyContent = "center";
+          fakeColorsBtn.style.alignItems = "center";
+          fakeColorsBtn.style.cursor = "pointer";
+          fakeColorsBtn.style.padding = "5px 5px 5px 5px";
+          fakeColorsBtn.style.borderRadius = "10px";
+          fakeColorsBtn.style.transition = "background 0.5s ease";
+          fakeColorsBtn.id = "fakeButton";
+          container.appendChild(fakeColorsBtn);
+          return fakeColorsBtn;
         }
-        const buttonText = document.createElement("span");
-        buttonText.textContent = text;
-        buttonText.style.transition = "all 0.5s ease";  
-    
-        button.appendChild(buttonText);
-        buttonWrapper.appendChild(button);
-        container.appendChild(buttonWrapper);
-    
-        button.addEventListener("click", async () => {
+
+        function createFakeMakeButton(container) {
+          const fakeMakeBtn = document.createElement("button");
+          fakeMakeBtn.style.position = "absolute";
+          fakeMakeBtn.style.right = "10px";
+          fakeMakeBtn.style.width = "10px";
+          fakeMakeBtn.style.bottom = "16px";
+          fakeMakeBtn.style.height = "76px";
+          fakeMakeBtn.style.background = "grey";
+          fakeMakeBtn.style.border = "none";
+          fakeMakeBtn.style.display = "flex";
+          fakeMakeBtn.style.justifyContent = "center";
+          fakeMakeBtn.style.alignItems = "center";
+          fakeMakeBtn.style.cursor = "pointer";
+          fakeMakeBtn.style.padding = "5px 5px 5px 5px";
+          fakeMakeBtn.style.borderRadius = "10px";
+          fakeMakeBtn.style.transition = "background 0.5s ease";
+          fakeMakeBtn.style.zIndex = "99999";
+          fakeMakeBtn.id = "fakeMakeButton";
+          container.appendChild(fakeMakeBtn);
+          return fakeMakeBtn;
+        }
+
+        function createIndicatorButton(container, color = "#DD6D55") {
+          const indicatorButton = document.createElement("button");
+          indicatorButton.style.background = color;
+          indicatorButton.style.width = "20%";
+          indicatorButton.style.padding = "5px 0px 5px 0px";
+          indicatorButton.style.border = "none";
+          indicatorButton.style.cursor = "pointer";
+          indicatorButton.style.borderRadius = "10px";
+          indicatorButton.style.display = "flex";
+          indicatorButton.style.justifyContent = "center";
+          indicatorButton.style.alignItems = "center";
+          indicatorButton.style.transition = "background 0.5s ease";
+          indicatorButton.id = "instantPost";
+          container.appendChild(indicatorButton);
+          return indicatorButton;
+        }
+
+        function createButton(container, text, callback, color = "", id = "") {
+          let link = document.createElement("link");
+          link.href =
+            "https://fonts.googleapis.com/css2?family=Josefin+Sans&display=swap";
+          link.rel = "stylesheet";
+          document.head.appendChild(link);
+
+          const buttonWrapper = document.createElement("div");
+          buttonWrapper.style.width = "33%";
+
+          buttonWrapper.style.margin = "5px";
+          buttonWrapper.style.display = "flex";
+          buttonWrapper.style.justifyContent = "center";
+          buttonWrapper.style.alignItems = "center";
+
+          const button = document.createElement("button");
+          button.id = id;
+          button.style.background = color;
+          button.style.color = "white";
+          button.style.padding = "10px 0px 5px 0px";
+          button.style.border = "none";
+          button.style.cursor = "pointer";
+          button.style.borderRadius = "10px";
+          button.style.width = "100%";
+          button.style.display = "flex";
+          button.style.justifyContent = "center";
+          button.style.alignItems = "center";
+          button.style.transition = "background 0.5s ease";
+          button.style.fontWeight = "bold";
+          button.style.fontSize = "16px";
+          button.style.height = "50px";
+          button.onmouseover = function () {
+            this.style.background = "#6c757d";
+            this.style.transition = "all 0.5s ease";
+          };
+
+          button.onmouseout = function () {
+            this.style.background = color;
+            this.style.transition = "all 0.5s ease";
+          };
+          const buttonText = document.createElement("span");
+          buttonText.textContent = text;
+          buttonText.style.transition = "all 0.5s ease";
+
+          button.appendChild(buttonText);
+          buttonWrapper.appendChild(button);
+          container.appendChild(buttonWrapper);
+
+          button.addEventListener("click", async () => {
             animateButton(button, buttonText, callback);
-        });
-    
-        return { button, buttonText }
-    }
+          });
 
-    function addSplitButton(container, textLeft, textRight, callbackLeft, callbackRight, id) {
-      const button = document.createElement("button");
-      button.id = id;
-      button.style.cssText = `
+          return { button, buttonText };
+        }
+
+        function addSplitButton(
+          container,
+          textLeft,
+          textRight,
+          callbackLeft,
+          callbackRight,
+          id,
+        ) {
+          const button = document.createElement("button");
+          button.id = id;
+          button.style.cssText = `
           background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
           background-size: 205% 100%;
           background-position: center;
@@ -2239,14 +2436,12 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           font-size: 14px;
           align-items: center;
       `;
-  
-      // Создаем части кнопки
-      const leftPart = createButtonPart(textLeft);
-      const rightPart = createButtonPart(textRight);
-      
-      // Добавляем разделитель
-      const divider = document.createElement("div");
-      divider.style.cssText = `
+
+          const leftPart = createButtonPart(textLeft);
+          const rightPart = createButtonPart(textRight);
+
+          const divider = document.createElement("div");
+          divider.style.cssText = `
           width: 2px;
           height: 60%;
           background: rgba(255, 255, 255, 0.3);
@@ -2256,82 +2451,79 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           z-index: 2;
           transition: opacity 0.5s ease;
       `;
-  
-      button.appendChild(leftPart);
-      button.appendChild(rightPart);
-      button.appendChild(divider);
-  
-      // Анимация при наведении
-      let animationTimeout;
-      
-      const handleHover = (side) => {
-          clearTimeout(animationTimeout);
-          button.style.backgroundPosition = side;
-          divider.style.opacity = '0';
-          
-          if(side === 'left') {
-              leftPart.style.opacity = '1';
-              rightPart.style.opacity = '0';
-          } else {
-              leftPart.style.opacity = '0';
-              rightPart.style.opacity = '1';
-          }
-      };
-  
-      const resetState = () => {
-          button.style.backgroundPosition = 'center';
-          leftPart.style.opacity = '1';
-          rightPart.style.opacity = '1';
-          divider.style.opacity = '1';
-      };
-  
-      // Обработчики событий
-      leftPart.addEventListener('mouseover', () => handleHover('left'));
-      leftPart.addEventListener('mouseout', () => {
-          animationTimeout = setTimeout(resetState, 100);
-      });
-  
-      rightPart.addEventListener('mouseover', () => handleHover('right'));
-      rightPart.addEventListener('mouseout', () => {
-          animationTimeout = setTimeout(resetState, 100);
-      });
-  
-      // Обработка кликов
-      button.addEventListener("click", async (event) => {
-          const rect = button.getBoundingClientRect();
-          const clickX = event.clientX - rect.left;
-          button.disabled = true;
-  
-          if(clickX <= rect.width / 2) {
+
+          button.appendChild(leftPart);
+          button.appendChild(rightPart);
+          button.appendChild(divider);
+
+          let animationTimeout;
+
+          const handleHover = (side) => {
+            clearTimeout(animationTimeout);
+            button.style.backgroundPosition = side;
+            divider.style.opacity = "0";
+
+            if (side === "left") {
+              leftPart.style.opacity = "1";
+              rightPart.style.opacity = "0";
+            } else {
+              leftPart.style.opacity = "0";
+              rightPart.style.opacity = "1";
+            }
+          };
+
+          const resetState = () => {
+            button.style.backgroundPosition = "center";
+            leftPart.style.opacity = "1";
+            rightPart.style.opacity = "1";
+            divider.style.opacity = "1";
+          };
+
+          leftPart.addEventListener("mouseover", () => handleHover("left"));
+          leftPart.addEventListener("mouseout", () => {
+            animationTimeout = setTimeout(resetState, 100);
+          });
+
+          rightPart.addEventListener("mouseover", () => handleHover("right"));
+          rightPart.addEventListener("mouseout", () => {
+            animationTimeout = setTimeout(resetState, 100);
+          });
+
+          button.addEventListener("click", async (event) => {
+            const rect = button.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            button.disabled = true;
+
+            if (clickX <= rect.width / 2) {
               await animateButton(button, leftPart, callbackLeft);
-          } else {
+            } else {
               await animateButton(button, rightPart, callbackRight);
-          }
-          
-          button.disabled = false;
-      });
-  
-      container.appendChild(button);
-      return { button };
-  }
-  
-  function createButtonPart(text) {
-    const part = document.createElement("div");
-    part.style.cssText = `
-        flex: 1;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0 4px;
-        transition: all 0.5s ease;
-        z-index: 1;
-        opacity: 1;
-    `;
-    part.textContent = text;
-    return part;
-    }
-      
+            }
+
+            button.disabled = false;
+          });
+
+          container.appendChild(button);
+          return { button };
+        }
+
+        function createButtonPart(text) {
+          const part = document.createElement("div");
+          part.style.cssText = `
+          flex: 1;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 4px;
+          transition: all 0.5s ease;
+          z-index: 1;
+          opacity: 1;
+        `;
+          part.textContent = text;
+          return part;
+        }
+
         if (!window.buttonsAdded) {
           const container = document.createElement("div");
           container.style.position = "fixed";
@@ -2343,12 +2535,12 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           container.style.alignItems = "center";
           container.style.fontFamily = "'Josefin Sans', sans-serif";
           container.style.color = "white";
-          container.style.fontSize = '20px';
+          container.style.fontSize = "20px";
           container.style.width = "90%";
           container.style.flexShrink = "0";
           container.style.justifyContent = "space-between";
-          container.style.zIndex = "9999"
-          container.id = "cont1"
+          container.style.zIndex = "9999";
+          container.id = "cont1";
 
           const container2 = document.createElement("div");
           container2.style.position = "fixed";
@@ -2360,12 +2552,12 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           container2.style.alignItems = "center";
           container2.style.fontFamily = "'Josefin Sans', sans-serif";
           container2.style.color = "white";
-          
+
           container2.style.width = "90%";
           container2.style.flexShrink = "0";
           container2.style.justifyContent = "center";
-          container2.style.zIndex = "9999"
-          container2.id = "cont2"
+          container2.style.zIndex = "9999";
+          container2.id = "cont2";
 
           const containerNew = document.createElement("div");
           containerNew.style.position = "fixed";
@@ -2380,50 +2572,56 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           containerNew.style.width = "90%";
           containerNew.style.flexShrink = "0";
           containerNew.style.justifyContent = "end";
-          containerNew.style.zIndex = "9999"
-          containerNew.id = "cont3"
+          containerNew.style.zIndex = "9999";
+          containerNew.id = "cont3";
 
           addSplitButton(
             container,
-            "Clear all photos",  
-            "Clear 1 photo",    
+            "Clear all photos",
+            "Clear 1 photo",
             clearRequestLeft,
             clearRequestRight,
-            "split-button1"
-        );
+            "split-button1",
+          );
           document.body.appendChild(container);
           document.body.appendChild(container2);
 
-          createButton(container,  "Add Media", pasteRequest, '#5a6268', "yen-add-photo");
+          createButton(
+            container,
+            "Add Media",
+            pasteRequest,
+            "#5a6268",
+            "yen-add-photo",
+          );
           addSplitButton(
             container,
-            "Next tab & post", 
-            "Post",                          
+            "Next tab & post",
+            "Post",
             bindFixRequest,
             bindRequest,
-            "split-button2"
-        );
+            "split-button2",
+          );
           let postIndicatorButton = createIndicatorButton(container2);
           let fakeColors = createFakeColorsButton(container2);
           let fakeMakeButton = createFakeMakeButton(document.body);
-          
+
           updatePostIndicator(postIndicatorButton);
-          updateFakeIndicator(fakeColors)
+          updateFakeIndicator(fakeColors);
 
           postIndicatorButton.addEventListener("click", async () => {
             await togglePostIndicator();
-            await updatePostIndicator(postIndicatorButton)
+            await updatePostIndicator(postIndicatorButton);
           });
           fakeColors.addEventListener("click", async () => {
             await toggleFakeIndicator();
-            await updateFakeIndicator(fakeColors)
+            await updateFakeIndicator(fakeColors);
           });
           fakeMakeButton.addEventListener("click", async () => {
             await fakeRequest();
           });
 
           const newButton = document.createElement("button");
-          newButton.id = "autopost-button"
+          newButton.id = "autopost-button";
           newButton.style.backgroundColor = "rgb(221, 109, 85)";
           newButton.style.color = "white";
           newButton.style.border = "none";
@@ -2431,7 +2629,6 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           newButton.style.zIndex = "9999";
           newButton.style.fontFamily = "'Josefin Sans', sans-serif";
           newButton.style.borderRadius = "10px";
-          newButton.style.padding = "2px";
           newButton.style.width = "31%";
           newButton.style.height = "30px";
           newButton.style.display = "flex";
@@ -2439,22 +2636,22 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           newButton.style.alignItems = "center";
           const newButtonText = document.createElement("span");
           newButtonText.textContent = "auto";
-          newButtonText.style.transition = "all 0.5s ease";  
+          newButtonText.style.transition = "all 0.5s ease";
           newButton.appendChild(newButtonText);
-          newButton.style.marginRight = "5px"
-          newButton.addEventListener("click", function() {
+          newButton.style.margin = "0px 5px 0px 5px";
+          newButton.addEventListener("click", function () {
             chrome.runtime.sendMessage({ action: "clickAndMove" });
-        });
+          });
 
-          newButton.onmouseover = function() {
-            this.style.background = "#e38571"; 
+          newButton.onmouseover = function () {
+            this.style.background = "#e38571";
             this.style.transition = "all 0.5s ease";
-          }
-          
-          newButton.onmouseout = function() {
+          };
+
+          newButton.onmouseout = function () {
             this.style.background = "rgb(221, 109, 85)";
             this.style.transition = "all 0.5s ease";
-          }
+          };
 
           const stopButton = document.createElement("button");
           stopButton.id = "stop-button";
@@ -2479,9 +2676,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               transition: all 0.5s ease;
               position: relative;
               font-size: 16px;
+              margin: 0px 5px 0px 5px;
           `;
-          
-          // Левая часть кнопки
+
           const stopPostingPart = document.createElement("div");
           stopPostingPart.style.cssText = `
               flex: 1;
@@ -2494,8 +2691,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               z-index: 1;
               opacity: 1;
           `;
-          
-          // Правая часть кнопки
+
           const stopAutoPart = document.createElement("div");
           stopAutoPart.style.cssText = `
               flex: 1;
@@ -2508,16 +2704,13 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               z-index: 1;
               opacity: 1;
           `;
-          
-          // Добавляем текст
+
           stopPostingPart.textContent = "stop posting";
           stopAutoPart.textContent = "stop auto";
-          
-          // Добавляем части в кнопку
+
           stopButton.appendChild(stopPostingPart);
           stopButton.appendChild(stopAutoPart);
-          
-          // Добавляем разделитель
+
           const divider = document.createElement("div");
           divider.style.cssText = `
               width: 1px;
@@ -2530,264 +2723,522 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               transition: opacity 0.5s ease;
           `;
           stopButton.appendChild(divider);
-          
-          // Общие настройки анимации
+
           let animationTimeout;
-          
+
           const handleHover = (part, targetPosition) => {
-              clearTimeout(animationTimeout);
-              stopButton.style.backgroundPosition = targetPosition;
-              
-              if (part === 'left') {
-                  stopPostingPart.style.opacity = '1';
-                  stopAutoPart.style.opacity = '0';
-                  divider.style.opacity = '0';
-              } else {
-                  stopPostingPart.style.opacity = '0';
-                  stopAutoPart.style.opacity = '1';
-                  divider.style.opacity = '0';
-              }
+            clearTimeout(animationTimeout);
+            stopButton.style.backgroundPosition = targetPosition;
+
+            if (part === "left") {
+              stopPostingPart.style.opacity = "1";
+              stopAutoPart.style.opacity = "0";
+              divider.style.opacity = "0";
+            } else {
+              stopPostingPart.style.opacity = "0";
+              stopAutoPart.style.opacity = "1";
+              divider.style.opacity = "0";
+            }
           };
-          
+
           const resetState = () => {
-              stopButton.style.backgroundPosition = 'center';
-              stopPostingPart.style.opacity = '1';
-              stopAutoPart.style.opacity = '1';
-              divider.style.opacity = '1';
+            stopButton.style.backgroundPosition = "center";
+            stopPostingPart.style.opacity = "1";
+            stopAutoPart.style.opacity = "1";
+            divider.style.opacity = "1";
           };
-          
-          // Обработчики для левой части
-          stopPostingPart.addEventListener('mouseover', () => handleHover('left', 'left'));
-          stopPostingPart.addEventListener('mouseout', () => {
-              animationTimeout = setTimeout(resetState, 100);
+
+          stopPostingPart.addEventListener("mouseover", () =>
+            handleHover("left", "left"),
+          );
+          stopPostingPart.addEventListener("mouseout", () => {
+            animationTimeout = setTimeout(resetState, 100);
           });
-          
-          // Обработчики для правой части
-          stopAutoPart.addEventListener('mouseover', () => handleHover('right', 'right'));
-          stopAutoPart.addEventListener('mouseout', () => {
-              animationTimeout = setTimeout(resetState, 100);
+
+          stopAutoPart.addEventListener("mouseover", () =>
+            handleHover("right", "right"),
+          );
+          stopAutoPart.addEventListener("mouseout", () => {
+            animationTimeout = setTimeout(resetState, 100);
           });
-          
+
           function setStopState(value) {
             isStop = value;
             chrome.storage.local.set({ isStop: value });
           }
 
           stopPostingPart.addEventListener("click", async (e) => {
-              e.stopPropagation();
-              await animateButton(stopButton, stopPostingPart, stopRequest);
+            e.stopPropagation();
+            await animateButton(stopButton, stopPostingPart, stopRequest);
           });
-          
+
           stopAutoPart.addEventListener("click", async (e) => {
             e.stopPropagation();
-            setStopState(true); 
+            setStopState(true);
             await animateButton(stopButton, stopAutoPart);
           });
-          
 
+          const switchButton = document.createElement("button");
+          switchButton.style.cssText = `
+              position: fixed;
+              background-color:  rgb(90, 98, 104);
+              border: none;
+              border-radius: 10px;
+              padding: 4px;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              z-index: 9999;
+              bottom: 105px;
+              right: 29%;
+              cursor: pointer;
+              z-index: 99999;
+              transition: all 0.5s;
+              outline: none;
+          `;
+
+          switchButton.innerHTML = `
+          <svg viewBox="0 0 330 330" width="16" height="16">
+              <path fill="white" d="M79.394,250.606C82.323,253.535,86.161,255,90,255c3.839,0,7.678-1.465,10.606-4.394 c5.858-5.857,5.858-15.355,0-21.213L51.213,180h227.574l-49.393,49.394c-5.858,5.857-5.858,15.355,0,21.213 C232.322,253.535,236.161,255,240,255s7.678-1.465,10.606-4.394l75-75c5.858-5.857,5.858-15.355,0-21.213l-75-75 c-5.857-5.857-15.355-5.857-21.213,0c-5.858,5.857-5.858,15.355,0,21.213L278.787,150H51.213l49.393-49.394 c5.858-5.857,5.858-15.355,0-21.213c-5.857-5.857-15.355-5.857-21.213,0l-75,75c-5.858,5.857-5.858,15.355,0,21.213L79.394,250.606z"></path>
+          </svg>
+          `;  
+
+          function handleMouseOver() {
+            switchButton.style.backgroundColor = "#e38571";
+          }
+
+          function handleMouseOut() {
+            switchButton.style.backgroundColor = "rgb(90, 98, 104)";
+          }
+
+          switchButton.addEventListener("mouseover", handleMouseOver);
+          switchButton.addEventListener("mouseout", handleMouseOut);
+
+          switchButton.addEventListener("click", function() {
+            chrome.runtime.sendMessage({ action: "quickSwitch" });
+          });
+        
+
+          document.body.appendChild(switchButton);
           containerNew.appendChild(stopButton);
-          containerNew.appendChild(newButton); 
+          containerNew.appendChild(newButton);
           document.body.appendChild(containerNew);
           window.buttonsAdded = true;
         }
       },
-      args: [DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON]
+      args: [DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON],
     });
   }
 }
 
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+  if (request.action === "closeCurrentTab") {
+    closedTabIds.add(sender.tab.id);
+    chrome.tabs.remove(sender.tab.id, function () {
+      if (chrome.runtime.lastError) {
+        chrome.tabs.move(sender.tab.id, { index: -1 });
+      }
+    });
+    chrome.storage.local.set({ isPaused: true });
+    setTimeout(() => {
+      chrome.storage.local.set({ isPaused: false });
+    }, 6000);
+  }
+
+  if (request.action === "openNewTab") {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      var currentTab = tabs[0];
+      var currentTabIndex = currentTab.index;
+      var targetUrl = "https://onlyfans.com/posts/create";
+      chrome.tabs.query({}, function (tabs) {
+        if (currentTabIndex < tabs.length - 1) {
+          var nextTab = tabs[currentTabIndex + 1];
+          if (nextTab.url !== targetUrl) {
+            chrome.tabs.update(nextTab.id, { url: targetUrl, active: true });
+          } else {
+            chrome.tabs.update(nextTab.id, { active: true });
+          }
+        } else {
+          chrome.tabs.create({ url: targetUrl }, function (newTab) {
+            chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+              if (info.status === "complete" && tabId === newTab.id) {
+                chrome.scripting.executeScript({
+                  target: { tabId: newTab.id },
+                  function() {
+                    const selector1 =
+                      "#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button.m-btn-clear-draft.g-btn.m-border.m-rounded.m-sm-width.m-reset-width";
+                    const selector2 =
+                      "#content > div.l-wrapper > div > div > div > div > div.stories-list.m-mb-9.g-negative-sides-gaps";
+                    const observer = new MutationObserver((mutationsList) => {
+                      for (let mutation of mutationsList) {
+                        if (mutation.type === "childList") {
+                          const element1 = document.querySelector(selector1);
+                          if (element1) {
+                            element1.click();
+                            element1.style.display = "none";
+                          }
+
+                          const element2 = document.querySelector(selector2);
+
+                          if (element2) {
+                            element2.parentNode.removeChild(element2);
+                          }
+
+                          if (element1 && element2) {
+                            observer.disconnect();
+                          }
+                        }
+                      }
+                    });
+
+                    observer.observe(document, {
+                      childList: true,
+                      subtree: true,
+                    });
+                    setTimeout(() => observer.disconnect(), 10000);
+                  },
+                });
+                chrome.tabs.onUpdated.removeListener(listener);
+              }
+            });
+          });
+        }
+      });
+    });
+  }
+
+  if (request.action === "clickAndMove") {
+    updateButtonStyleOnAllTabs({
+      backgroundColor: "grey",
+      cursor: "not-allowed",
+      color: "white",
+      hoverBackgroundColor: "darkgrey",
+    });
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      const currentTabId = tabs[0].id;
+      getNumberOfTabsToClick(currentTabId, function (numberOfTabsToClick) {
+        tabsToClick = numberOfTabsToClick;
+        clickAndMove(currentTabId, tabsToClick);
+      });
+    });
+  }
+
+  if (request.action === "quickSwitch") {
+    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        const currentTabId = tabs[0].id;
+       
+        chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(matchingTabs) {
+            if (matchingTabs.length > 0) {
+                const firstMatchingTab = matchingTabs[0];
+                chrome.tabs.update(firstMatchingTab.id, { active: true }, () => {
+                    setTimeout(() => {
+                        chrome.tabs.update(currentTabId, { active: true });
+                    }, 1000);
+                });
+            }
+        });
+    });
+  }
+
+  if (request.action === "createNotif") {
+    createNotification(request.tabId, request.message);
+  }
+
+  if (request.action === "switchTabClick") {
+    chrome.tabs.update(request.tabId, { active: true });
+  }
+
+  if (request.action === "blacklist") {
+    chrome.tabs.query({ currentWindow: true }, function (tabs) {
+      let currentTab = tabs.find((tab) => tab.id === request.tabId);
+      let previousTab = tabs.find((tab) => tab.index === currentTab.index - 1);
+      if (previousTab && previousTab.url !== request.url) {
+        chrome.tabs.update(request.tabId, { url: request.url });
+      }
+    });
+  }
+
+  if (request.action === "checkModelsResult") {
+    try {
+      const response = await fetch("http://localhost:3000/checkModels", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(message.data),
+      });
+      if (response.ok) {
+        console.log("Data sent successfully to the server");
+      } else {
+        console.error("Failed to send data to the server");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  }
+
+  if (request.action === "closeTab" && sender.tab?.id) {
+    closedTabIds.add(sender.tab.id);
+    closedTabsCount++;
+    chrome.tabs.remove(sender.tab.id);
+  }
+});
+
 async function rememberId(tab, prevTab) {
-  chrome.storage.local.set({savedTabId: tab.id});
-  chrome.storage.local.set({deleteTabId: prevTab.id});
+  chrome.storage.local.set({ savedTabId: tab.id });
+  chrome.storage.local.set({ deleteTabId: prevTab.id });
 }
 
 function pressBind() {
-  let selector = document.querySelector('[at-attr="submit_post"]') || document.querySelector("#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button");
+  let selector =
+    document.querySelector('[at-attr="submit_post"]') ||
+    document.querySelector(
+      "#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button",
+    );
   if (selector) {
-      selector.click();
-      setTimeout(function() {
-          let buttons = document.querySelectorAll('button.g-btn.m-flat.m-btn-gaps.m-reset-width');
-          buttons.forEach(function(button) {
-              if (button.textContent.trim() === "Yes") {
-                  button.click();
-              }
-          });
-      }, 500); 
+    selector.click();
+    setTimeout(function () {
+      let buttons = document.querySelectorAll(
+        "button.g-btn.m-flat.m-btn-gaps.m-reset-width",
+      );
+      buttons.forEach(function (button) {
+        if (button.textContent.trim() === "Yes") {
+          button.click();
+        }
+      });
+    }, 500);
   }
 }
 
 async function pressBindFix(tab) {
-
   function pressBind() {
-    let selector = document.querySelector('[at-attr="submit_post"]') || document.querySelector("#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button");
+    let selector =
+      document.querySelector('[at-attr="submit_post"]') ||
+      document.querySelector(
+        "#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button",
+      );
     if (selector) {
-        selector.click();
-        setTimeout(function() {
-            let buttons = document.querySelectorAll('button.g-btn.m-flat.m-btn-gaps.m-reset-width');
-            buttons.forEach(function(button) {
-                if (button.textContent.trim() === "Yes") {
-                    button.click();
-                }
-            });
-        }, 500); 
+      selector.click();
+      setTimeout(function () {
+        let buttons = document.querySelectorAll(
+          "button.g-btn.m-flat.m-btn-gaps.m-reset-width",
+        );
+        buttons.forEach(function (button) {
+          if (button.textContent.trim() === "Yes") {
+            button.click();
+          }
+        });
+      }, 500);
     }
   }
-  
+
   var tabId = tab.id;
 
   function delay(time) {
-    return new Promise(resolve => setTimeout(resolve, time));
+    return new Promise((resolve) => setTimeout(resolve, time));
   }
-  
-  chrome.runtime.sendMessage({action: "openNewTab"});
-  
+
+  chrome.runtime.sendMessage({ action: "openNewTab" });
+
   function intervalFunc() {
-    chrome.storage.local.get('isPaused', async function(data) {
+    chrome.storage.local.get("isPaused", async function (data) {
       if (data.isPaused) {
         setTimeout(intervalFunc, 1000);
-        return
+        return;
       } else {
-        const secondTargetNode  = document.querySelector('.b-reminder-form.m-error');
-        const innerDiv = secondTargetNode ? secondTargetNode.querySelector('div') : null;
+        const secondTargetNode = document.querySelector(
+          ".b-reminder-form.m-error",
+        );
+        const innerDiv = secondTargetNode
+          ? secondTargetNode.querySelector("div")
+          : null;
         if (innerDiv) {
-          if (!innerDiv.textContent.includes('10')) {   
-            chrome.runtime.sendMessage({action: "createNotif", tabId: tab.id, message: innerDiv.textContent});
-            if (innerDiv.textContent.includes('tag')) {
-              let username = innerDiv.textContent.split('@')[1].trim();
+          if (!innerDiv.textContent.includes("10")) {
+            chrome.runtime.sendMessage({
+              action: "createNotif",
+              tabId: tab.id,
+              message: innerDiv.textContent,
+            });
+            if (innerDiv.textContent.includes("tag")) {
+              let username = innerDiv.textContent.split("@")[1].trim();
               let url = `https://onlyfans.com/my/collections/user-lists/blocked?search=${username}`;
-              chrome.runtime.sendMessage({action: "blacklist", url, tabId: tab.id});
+              chrome.runtime.sendMessage({
+                action: "blacklist",
+                url,
+                tabId: tab.id,
+              });
             }
-            if (innerDiv.textContent.includes('Daily') || innerDiv.textContent.includes('Internal') || innerDiv.textContent.includes('Nothing')) {
+            if (
+              innerDiv.textContent.includes("Daily") ||
+              innerDiv.textContent.includes("Internal") ||
+              innerDiv.textContent.includes("Nothing")
+            ) {
               await delay(20000);
-            }
-            else if (innerDiv.textContent.includes('Attached')) {
-              let elements = document.querySelectorAll('.b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip');
-              let divs = document.querySelectorAll("#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div")
-              divs.forEach(function(div) {
-                elements.forEach(function(element) {
-                    if (div.contains(element)) {
-                        element.click();
-                    }
+            } else if (innerDiv.textContent.includes("Attached")) {
+              let elements = document.querySelectorAll(
+                ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip",
+              );
+              let divs = document.querySelectorAll(
+                "#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div",
+              );
+              divs.forEach(function (div) {
+                elements.forEach(function (element) {
+                  if (div.contains(element)) {
+                    element.click();
+                  }
                 });
               });
-              const mediaLink = document.querySelector('.media-file')?.getAttribute('href');
+              const mediaLink = document
+                .querySelector(".media-file")
+                ?.getAttribute("href");
               if (mediaLink) {
-
-                function simulateDragAndDrop(sourceElement, targetElement, file) {
+                function simulateDragAndDrop(
+                  sourceElement,
+                  targetElement,
+                  file,
+                ) {
                   const dataTransfer = new DataTransfer();
-                  
+
                   dataTransfer.items.add(file);
-  
-                  const dragStartEvent = new DragEvent('dragstart', {
-                      bubbles: true,
-                      cancelable: true,
-                      dataTransfer: dataTransfer
+
+                  const dragStartEvent = new DragEvent("dragstart", {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer,
                   });
                   sourceElement.dispatchEvent(dragStartEvent);
-            
+
                   setTimeout(() => {
-                      const dragOverEvent = new DragEvent('dragover', {
-                          bubbles: true,
-                          cancelable: true,
-                          dataTransfer: dataTransfer
+                    const dragOverEvent = new DragEvent("dragover", {
+                      bubbles: true,
+                      cancelable: true,
+                      dataTransfer: dataTransfer,
+                    });
+                    targetElement.dispatchEvent(dragOverEvent);
+
+                    setTimeout(() => {
+                      const dropEvent = new DragEvent("drop", {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer,
                       });
-                      targetElement.dispatchEvent(dragOverEvent);
-              
-                      setTimeout(() => {
-                          const dropEvent = new DragEvent('drop', {
-                              bubbles: true,
-                              cancelable: true,
-                              dataTransfer: dataTransfer
-                          });
-                          targetElement.dispatchEvent(dropEvent);
-              
-                          const dragEndEvent = new DragEvent('dragend', {
-                            bubbles: true,
-                            cancelable: true,
-                            dataTransfer: dataTransfer
-                        });
-                        sourceElement.dispatchEvent(dragEndEvent);
-                      }, 100); 
+                      targetElement.dispatchEvent(dropEvent);
+
+                      const dragEndEvent = new DragEvent("dragend", {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer,
+                      });
+                      sourceElement.dispatchEvent(dragEndEvent);
+                    }, 100);
                   }, 100);
-              }
+                }
 
                 async function handleImageUpload(imageUrl) {
-                  let fileType = 'image/png';
+                  let fileType = "image/png";
                   let mediaElement;
-                
-                  if (imageUrl.includes('/media.') || imageUrl.includes('/image.')) {
-                    fileType = 'image/png';
+
+                  if (
+                    imageUrl.includes("/media.") ||
+                    imageUrl.includes("/image.")
+                  ) {
+                    fileType = "image/png";
                     mediaElement = new Image();
                   } else {
-                    const urlParts = imageUrl.split('/');
-                    const fileName = urlParts[urlParts.length - 1].split('?')[0];
-                    const fileExtension = fileName.split('.').pop().toLowerCase();
-                    
-                    if (fileExtension === 'gif') {
-                      fileType = 'image/gif';
+                    const urlParts = imageUrl.split("/");
+                    const fileName =
+                      urlParts[urlParts.length - 1].split("?")[0];
+                    const fileExtension = fileName
+                      .split(".")
+                      .pop()
+                      .toLowerCase();
+
+                    if (fileExtension === "gif") {
+                      fileType = "image/gif";
                       mediaElement = new Image();
-                    } else if (fileExtension === 'mp4') {
-                      fileType = 'video/mp4';
-                      mediaElement = document.createElement('video');
+                    } else if (fileExtension === "mp4") {
+                      fileType = "video/mp4";
+                      mediaElement = document.createElement("video");
                     } else {
-                      fileType = 'image/png';
+                      fileType = "image/png";
                       mediaElement = new Image();
                     }
                   }
-                
+
                   mediaElement.crossOrigin = "anonymous";
                   mediaElement.src = imageUrl;
-                  
-                  mediaElement.onload = mediaElement.onloadedmetadata = async function () {
+
+                  mediaElement.onload = mediaElement.onloadedmetadata =
+                    async function () {
                       try {
-                
-                        const canvas = document.createElement('canvas');
+                        const canvas = document.createElement("canvas");
                         canvas.width = mediaElement.width || 800;
                         canvas.height = mediaElement.height || 600;
-                        const ctx = canvas.getContext('2d');
+                        const ctx = canvas.getContext("2d");
                         ctx.drawImage(mediaElement, 0, 0);
-                        
-                        const blob = await new Promise(resolve => {
+
+                        const blob = await new Promise((resolve) => {
                           canvas.toBlob(resolve, fileType);
                         });
-                
-                        const extension = fileType.split('/')[1];
-                        const file = new File([blob], `media.${extension}`, { type: fileType });
+
+                        const extension = fileType.split("/")[1];
+                        const file = new File([blob], `media.${extension}`, {
+                          type: fileType,
+                        });
                         let mediaInserted = false;
-                
+
                         await new Promise((resolve) => {
-                          const observer = new MutationObserver((mutationsList, observer) => {
-                            for (let mutation of mutationsList) {
-                              if (mutation.type === 'childList') {
-                                let el = document.querySelector(".b-make-post__media-wrapper");
-                                if (el && !mediaInserted) {
-                                  mediaInserted = true;
-                                  clearInterval(intervalId);
-                                  isUploading = false;
-                                  resolve();
-                                  observer.disconnect();
+                          const observer = new MutationObserver(
+                            (mutationsList, observer) => {
+                              for (let mutation of mutationsList) {
+                                if (mutation.type === "childList") {
+                                  let el = document.querySelector(
+                                    ".b-make-post__media-wrapper",
+                                  );
+                                  if (el && !mediaInserted) {
+                                    mediaInserted = true;
+                                    clearInterval(intervalId);
+                                    isUploading = false;
+                                    resolve();
+                                    observer.disconnect();
+                                  }
                                 }
                               }
-                            }
+                            },
+                          );
+
+                          observer.observe(document.body, {
+                            childList: true,
+                            subtree: true,
                           });
-                
-                          observer.observe(document.body, { childList: true, subtree: true });
-                
+
                           let dragAttempts = 0;
-                
+
                           const intervalId = setInterval(function () {
-                            let element = document.querySelector('.tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto');
-                            let el = document.querySelector(".b-make-post__media-wrapper");
-                
-                            if (element && !el && dragAttempts === 0 && !mediaInserted) {
+                            let element = document.querySelector(
+                              ".tiptap.ProseMirror.b-text-editor.js-text-editor.m-native-custom-scrollbar.m-scrollbar-y.m-scroll-behavior-auto.m-overscroll-behavior-auto",
+                            );
+                            let el = document.querySelector(
+                              ".b-make-post__media-wrapper",
+                            );
+
+                            if (
+                              element &&
+                              !el &&
+                              dragAttempts === 0 &&
+                              !mediaInserted
+                            ) {
                               element.focus();
                               simulateDragAndDrop(mediaElement, element, file);
                               mediaInserted = true;
                               dragAttempts++;
                             }
-                
+
                             setTimeout(function () {
-                              el = document.querySelector(".b-make-post__media-wrapper");
+                              el = document.querySelector(
+                                ".b-make-post__media-wrapper",
+                              );
                               if (el || dragAttempts >= 2) {
                                 mediaInserted = true;
                                 clearInterval(intervalId);
@@ -2799,38 +3250,50 @@ async function pressBindFix(tab) {
                           }, 200);
                         });
                       } catch (error) {
-                        console.error('Ошибка при обработке изображения:', error);
+                        console.error(
+                          "Ошибка при обработке изображения:",
+                          error,
+                        );
                         isUploading = false;
                       }
-                  };
-                  
-                  mediaElement.onerror = function(error) {
-                    console.error('Ошибка загрузки медиафайла:', error);
+                    };
+
+                  mediaElement.onerror = function (error) {
+                    console.error("Ошибка загрузки медиафайла:", error);
                     isUploading = false;
                   };
                 }
                 await handleImageUpload(mediaLink);
-            }
-            innerDiv.textContent = '';
-            await delay(5000);
-            }
-            else {
-              return
+              }
+              innerDiv.textContent = "";
+              await delay(5000);
+            } else {
+              return;
             }
           }
         }
-        chrome.runtime.sendMessage({action: "checkTab", tabId: tab.id}, function(response) {
-          if (response.shouldClick) {
-            pressBind();
-          }
-        })
-        setTimeout(function() {
-          let anchorElement = document.querySelector('a[data-name="PostsCreate"][href="/posts/create"]');
+        chrome.runtime.sendMessage(
+          { action: "checkTab", tabId: tab.id },
+          function (response) {
+            if (response.shouldClick) {
+              pressBind();
+            }
+          },
+        );
+        setTimeout(function () {
+          let anchorElement = document.querySelector(
+            'a[data-name="PostsCreate"][href="/posts/create"]',
+          );
           tabId = tabId.toString();
-          chrome.storage.local.get(tabId, function(data) {
-            if ((anchorElement && !anchorElement.classList.contains('m-disabled')) || data[tabId] || tab.url === 'https://onlyfans.com/my/queue') {
-              chrome.runtime.sendMessage({action: "closeCurrentTab"});
-              chrome.storage.local.set({[tabId]: false});
+          chrome.storage.local.get(tabId, function (data) {
+            if (
+              (anchorElement &&
+                !anchorElement.classList.contains("m-disabled")) ||
+              data[tabId] ||
+              tab.url === "https://onlyfans.com/my/queue"
+            ) {
+              chrome.runtime.sendMessage({ action: "closeCurrentTab" });
+              chrome.storage.local.set({ [tabId]: false });
             } else {
               setTimeout(intervalFunc, 2000);
             }
@@ -2855,129 +3318,55 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   }
 });
 
-chrome.runtime.onInstalled.addListener(function(details) {
+chrome.runtime.onInstalled.addListener(function (details) {
+  var newTabs = [];
 
-  var newTabs = []
-
-  if (details.reason === 'install') {
-    chrome.storage.local.clear()
-    chrome.storage.sync.clear()
-    chrome.tabs.create({ url: 'chrome://extensions/' }, function(tab) {
-      newTabs.push(tab.id)
+  if (details.reason === "install") {
+    chrome.storage.local.clear();
+    chrome.storage.sync.clear();
+    chrome.tabs.create({ url: "chrome://extensions/" }, function (tab) {
+      newTabs.push(tab.id);
     });
 
-    var targetUrl = 'https://onlyfans.com/posts/create';
-    chrome.tabs.create({ url: targetUrl }, function(tab) {
-      newTabs.push(tab.id)
-      chrome.tabs.onUpdated.addListener(function listener (tabId, info) {
-        if (info.status === 'complete' && tabId === tab.id) {
+    var targetUrl = "https://onlyfans.com/posts/create";
+    chrome.tabs.create({ url: targetUrl }, function (tab) {
+      newTabs.push(tab.id);
+      chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+        if (info.status === "complete" && tabId === tab.id) {
           chrome.tabs.onUpdated.removeListener(listener);
           chrome.scripting.executeScript({
-            target: {tabId: tabId},
-            function: function() {
-              const item = new ClipboardItem({ 'text/plain': new Blob([''], {type: 'text/plain'}) });
-              navigator.clipboard.write([item]).then(function() {
-              }, function(err) {
+            target: { tabId: tabId },
+            function: function () {
+              const item = new ClipboardItem({
+                "text/plain": new Blob([""], { type: "text/plain" }),
               });
+              navigator.clipboard.write([item]).then(
+                function () {},
+                function (err) {},
+              );
             },
           });
         }
       });
     });
 
-    chrome.tabs.query({}, function(tabs) {
+    chrome.tabs.query({}, function (tabs) {
       for (var i = 0; i < tabs.length; i++) {
         if (!newTabs.includes(tabs[i].id)) {
           chrome.tabs.remove(tabs[i].id);
         }
       }
     });
-    
+
     chrome.windows.create({
       url: chrome.runtime.getURL("popup.html"),
       type: "popup",
       left: 0,
       top: 0,
       width: 220,
-      height: 835
+      height: 835,
     });
   }
-});
-
-
-
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (request.action === 'closeCurrentTab') {
-    closedTabIds.add(sender.tab.id);
-    chrome.tabs.remove(sender.tab.id, function() {
-      if (chrome.runtime.lastError) {
-        chrome.tabs.move(sender.tab.id, {index: -1});
-      }
-    });
-    chrome.storage.local.set({isPaused: true});
-    setTimeout(() => {
-      chrome.storage.local.set({isPaused: false});
-    }, 6000);
-  } else if (request.action === 'openNewTab') {
-    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-        var currentTab = tabs[0];
-        var currentTabIndex = currentTab.index;
-        var targetUrl = 'https://onlyfans.com/posts/create';
-        chrome.tabs.query({}, function(tabs) {
-            if (currentTabIndex < tabs.length - 1) {
-                var nextTab = tabs[currentTabIndex + 1];
-                if (nextTab.url !== targetUrl) {
-                    chrome.tabs.update(nextTab.id, {url: targetUrl, active: true});
-                } else {
-                    chrome.tabs.update(nextTab.id, {active: true});
-                }
-            } else {
-                chrome.tabs.create({ url: targetUrl }, function(newTab) {
-                    chrome.tabs.onUpdated.addListener(function listener (tabId, info) {
-                        if (info.status === 'complete' && tabId === newTab.id) {
-                            chrome.scripting.executeScript({
-                                target: { tabId: newTab.id },
-                                function() {
-                                  const selector1 = "#content > div.l-wrapper > div.l-wrapper__holder-content.m-inherit-zindex > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button.m-btn-clear-draft.g-btn.m-border.m-rounded.m-sm-width.m-reset-width";
-                                  const selector2 = "#content > div.l-wrapper > div > div > div > div > div.stories-list.m-mb-9.g-negative-sides-gaps";
-                                  const observer = new MutationObserver(mutationsList => {
-
-                                      for(let mutation of mutationsList) {
-                                          if (mutation.type === 'childList') {
-                                              const element1 = document.querySelector(selector1);
-                                              if (element1) {
-                                                  element1.click();
-                                                  element1.style.display = 'none';
-                                              }
-                              
-                                              const element2 = document.querySelector(selector2);
-
-                                              if(element2) {
-                                                  element2.parentNode.removeChild(element2);
-                                              }
-
-                                              if (element1 && element2) {
-                                                observer.disconnect()
-                                              }
-
-                                          }
-                                      }
-                                  });
-                              
-                                  observer.observe(document, { childList: true, subtree: true });
-                                  setTimeout(() => observer.disconnect(), 10000);
-                              }
-                     
-                              
-                            });
-                            chrome.tabs.onUpdated.removeListener(listener);
-                        }
-                    });
-                });
-            }
-        });
-    });
-}
 });
 
 function createNotification(tabId, message) {
@@ -2987,21 +3376,21 @@ function createNotification(tabId, message) {
       target: { tabId: activeTabId },
       function: function () {
         var tabId = arguments[1];
-        var notification = document.createElement('div');
-        var closeButton = document.createElement('span');
-        closeButton.innerText = '×';
-        closeButton.style.position = 'absolute';
-        closeButton.style.right = '5px';
-        closeButton.style.top = '5px';
-        closeButton.style.cursor = 'pointer';
-        closeButton.style.fontSize = '20px';
+        var notification = document.createElement("div");
+        var closeButton = document.createElement("span");
+        closeButton.innerText = "×";
+        closeButton.style.position = "absolute";
+        closeButton.style.right = "5px";
+        closeButton.style.top = "5px";
+        closeButton.style.cursor = "pointer";
+        closeButton.style.fontSize = "20px";
 
         closeButton.onmouseover = function () {
-          closeButton.style.color = 'red';
+          closeButton.style.color = "red";
         };
 
         closeButton.onmouseout = function () {
-          closeButton.style.color = ''; 
+          closeButton.style.color = "";
         };
 
         closeButton.onclick = function (event) {
@@ -3009,33 +3398,36 @@ function createNotification(tabId, message) {
           document.body.removeChild(notification);
         };
         notification.appendChild(closeButton);
-        var messageElement = document.createElement('span');
+        var messageElement = document.createElement("span");
         messageElement.innerText = arguments[0];
         notification.appendChild(messageElement);
-        notification.style.position = 'fixed';
-        notification.style.bottom = '90px';
-        notification.style.left = '20px';
-        notification.style.maxWidth = '200px';
-        notification.style.padding = '10px 25px 10px 25px';
-        notification.style.backgroundColor = 'yellow';
-        notification.style.color = 'black';
-        notification.style.textAlign = 'center';
-        notification.style.zIndex = '10000';
-        notification.style.borderRadius = '10px';
-        notification.style.fontWeight = 'bold';
-        notification.style.cursor = 'pointer';
-        notification.style.opacity = '0';
-        notification.style.transition = 'opacity 0.5s ease-in-out';
+        notification.style.position = "fixed";
+        notification.style.bottom = "90px";
+        notification.style.left = "20px";
+        notification.style.maxWidth = "200px";
+        notification.style.padding = "10px 25px 10px 25px";
+        notification.style.backgroundColor = "yellow";
+        notification.style.color = "black";
+        notification.style.textAlign = "center";
+        notification.style.zIndex = "10000";
+        notification.style.borderRadius = "10px";
+        notification.style.fontWeight = "bold";
+        notification.style.cursor = "pointer";
+        notification.style.opacity = "0";
+        notification.style.transition = "opacity 0.5s ease-in-out";
         notification.onclick = function () {
-          chrome.runtime.sendMessage({ action: 'switchTabClick', tabId: tabId });
+          chrome.runtime.sendMessage({
+            action: "switchTabClick",
+            tabId: tabId,
+          });
           document.body.removeChild(notification);
         };
         document.body.appendChild(notification);
         setTimeout(function () {
-          notification.style.opacity = '1';
+          notification.style.opacity = "1";
         }, 100);
         var timeoutId = setTimeout(function () {
-          notification.style.opacity = '0';
+          notification.style.opacity = "0";
           setTimeout(function () {
             if (document.body.contains(notification)) {
               document.body.removeChild(notification);
@@ -3047,7 +3439,7 @@ function createNotification(tabId, message) {
         };
         notification.onmouseout = function () {
           timeoutId = setTimeout(function () {
-            notification.style.opacity = '0';
+            notification.style.opacity = "0";
             setTimeout(function () {
               if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
@@ -3061,113 +3453,99 @@ function createNotification(tabId, message) {
   });
 }
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (request.action === "createNotif") {
-      createNotification(request.tabId, request.message);
-  } else if (request.action === "switchTabClick") {
-      chrome.tabs.update(request.tabId, {active: true});
-  }
-  else if (request.action === "blacklist") {
-    chrome.tabs.query({currentWindow: true}, function(tabs) {
-        let currentTab = tabs.find(tab => tab.id === request.tabId);
-        let previousTab = tabs.find(tab => tab.index === currentTab.index - 1);
-        if (previousTab && previousTab.url !== request.url) {
-            chrome.tabs.update(request.tabId, { url: request.url });
-        }
-    });
-}
-});
-
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading') {
-    chrome.storage.local.get('tabIds', function(data) {
+  if (changeInfo.status === "loading") {
+    chrome.storage.local.get("tabIds", function (data) {
       let tabIds = data.tabIds || [];
       const index = tabIds.indexOf(tabId);
       if (index > -1) {
         tabIds.splice(index, 1);
-        chrome.storage.local.set({tabIds: tabIds});
+        chrome.storage.local.set({ tabIds: tabIds });
       }
     });
-  } 
-  if (changeInfo.status === 'complete' && tab.status === 'complete' && tab.url !== undefined) {
-    chrome.storage.local.get('tabIds', function(data) {
+  }
+  if (
+    changeInfo.status === "complete" &&
+    tab.status === "complete" &&
+    tab.url !== undefined
+  ) {
+    chrome.storage.local.get("tabIds", function (data) {
       let tabIds = data.tabIds || [];
       if (!tabIds.includes(tabId)) {
         setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON);
         tabIds.push(tabId);
-        chrome.storage.local.set({tabIds: tabIds});
+        chrome.storage.local.set({ tabIds: tabIds });
       }
     });
   }
 });
 
 chrome.tabs.onCreated.addListener(async (tab) => {
-  if (tab.status === 'complete' && tab.url !== undefined) {
-    chrome.storage.local.get('tabIds', function(data) {
+  if (tab.status === "complete" && tab.url !== undefined) {
+    chrome.storage.local.get("tabIds", function (data) {
       let tabIds = data.tabIds || [];
       if (tabIds.includes(tab.id)) {
         return;
       } else {
         setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON);
         tabIds.push(tab.id);
-        chrome.storage.local.set({tabIds: tabIds});
+        chrome.storage.local.set({ tabIds: tabIds });
       }
     });
   }
 });
 
-chrome.storage.local.remove('tabIds', function() {
+chrome.storage.local.remove("tabIds", function () {
   var error = chrome.runtime.lastError;
   if (error) {
     console.error(error);
   }
 });
 
-// Обновляем счетчик при загрузке страницы
-chrome.webNavigation.onCompleted.addListener(function(details) {
-    if (details.url.startsWith('https://onlyfans.com/')) {
-        updateTabCounterOnActiveTab(false);
-    }
-}, { url: [{ urlMatches: 'https://onlyfans.com/' }] });
-
-// Обновляем счетчик при создании новой вкладки
-chrome.tabs.onCreated.addListener(function(tab) {
-    if (tab.url && tab.url.startsWith('https://onlyfans.com/')) {
-        onlyFansOpenTabs.add(tab.id); // Добавляем новую вкладку в множество
-        updateTabCounterOnActiveTab(false);
-    }
-});
-
-// Обновляем счетчик при обновлении вкладки
-chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
-    if (tab.url && tab.url.startsWith('https://onlyfans.com/') && changeInfo.status === 'complete') {
-        onlyFansOpenTabs.add(tabId); // Обновляем множество открытых вкладок
-        updateTabCounterOnActiveTab(false);
-    }
-});
-
-// Обновляем счетчик при закрытии вкладки
-chrome.tabs.onRemoved.addListener(function(tabId) {
-    if (onlyFansOpenTabs.has(tabId) && closedTabIds.has(tabId)) {
-        closedTabIds.delete(tabId);
-        onlyFansOpenTabs.delete(tabId); // Удаляем закрытую вкладку из множества
-        closedTabsCount += 1; // Увеличиваем счетчик закрытых вкладок
-        lastClosedTime = new Date(); // Устанавливаем время последнего закрытия вкладки
-        updateTabCounterOnActiveTab(false);
-    }
-    else if (onlyFansOpenTabs.has(tabId)) {
-      onlyFansOpenTabs.delete(tabId);
+chrome.webNavigation.onCompleted.addListener(
+  function (details) {
+    if (details.url.startsWith("https://onlyfans.com/")) {
       updateTabCounterOnActiveTab(false);
     }
+  },
+  { url: [{ urlMatches: "https://onlyfans.com/" }] },
+);
+
+chrome.tabs.onCreated.addListener(function (tab) {
+  if (tab.url && tab.url.startsWith("https://onlyfans.com/")) {
+    onlyFansOpenTabs.add(tab.id); 
+    updateTabCounterOnActiveTab(false);
+  }
 });
 
-// Таймер для обновления времени с момента закрытия последней вкладки
+chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+  if (
+    tab.url &&
+    tab.url.startsWith("https://onlyfans.com/") &&
+    changeInfo.status === "complete"
+  ) {
+    onlyFansOpenTabs.add(tabId);
+    updateTabCounterOnActiveTab(false);
+  }
+});
+
+chrome.tabs.onRemoved.addListener(function (tabId) {
+  if (onlyFansOpenTabs.has(tabId) && closedTabIds.has(tabId)) {
+    closedTabIds.delete(tabId);
+    onlyFansOpenTabs.delete(tabId); 
+    closedTabsCount += 1; 
+    lastClosedTime = new Date();
+    updateTabCounterOnActiveTab(false);
+  } else if (onlyFansOpenTabs.has(tabId)) {
+    onlyFansOpenTabs.delete(tabId);
+    updateTabCounterOnActiveTab(false);
+  }
+});
+
 setInterval(() => updateTabCounterOnActiveTab(false), 1000);
 
-
-// Инициализируем счетчики при загрузке расширения
-chrome.runtime.onStartup.addListener(function() {
-    updateTabCounterOnPage();
+chrome.runtime.onStartup.addListener(function () {
+  updateTabCounterOnPage();
 });
 
 function checkDataFileAndSetTimeout() {
@@ -3208,8 +3586,7 @@ async function sendTypeToServer(dataIndex, browserType) {
 let tabsToClick = 0;
 
 function clickOnNewTab(tabId) {
-  // Переключаемся на новую вкладку
-  chrome.tabs.update(tabId, { active: true }, function() {
+  chrome.tabs.update(tabId, { active: true }, function () {
     chrome.scripting.executeScript({
       target: { tabId: tabId },
       func: () => {
@@ -3217,38 +3594,33 @@ function clickOnNewTab(tabId) {
           const splitButton = document.getElementById("split-button2");
           if (splitButton) {
             const rect = splitButton.getBoundingClientRect();
-
-            // Создаем событие mouseover
-            const mouseOverEvent = new MouseEvent('mouseover', {
+            const mouseOverEvent = new MouseEvent("mouseover", {
               bubbles: true,
               cancelable: true,
               clientX: rect.left + rect.width / 4,
-              clientY: rect.top + rect.height / 2 // Обратите внимание на clientY
+              clientY: rect.top + rect.height / 2, 
             });
             splitButton.dispatchEvent(mouseOverEvent);
-
-            // Задержка перед выполнением клика
             setTimeout(() => {
-              // Создаем событие click
-              const clickEvent = new MouseEvent('click', {
+              const clickEvent = new MouseEvent("click", {
                 bubbles: true,
                 cancelable: true,
                 clientX: rect.left + rect.width / 4,
-                clientY: rect.top + rect.height / 2 // Обратите внимание на clientY
+                clientY: rect.top + rect.height / 2, 
               });
               splitButton.dispatchEvent(clickEvent);
-            }, 0); 
+            }, 0);
           }
         });
       },
-      args: []
+      args: [],
     });
   });
 }
 
 function updateButtonStyleOnAllTabs(style, reset = false) {
-  chrome.tabs.query({ currentWindow: true }, function(tabs) {
-    tabs.forEach(tab => {
+  chrome.tabs.query({ currentWindow: true }, function (tabs) {
+    tabs.forEach((tab) => {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: (style, reset) => {
@@ -3259,15 +3631,14 @@ function updateButtonStyleOnAllTabs(style, reset = false) {
             button.style.cursor = style.cursor || "";
 
             if (reset) {
-              button.removeEventListener('mouseover', handleMouseOver);
-              button.removeEventListener('mouseout', handleMouseOut);
+              button.removeEventListener("mouseover", handleMouseOver);
+              button.removeEventListener("mouseout", handleMouseOut);
             } else {
-              button.addEventListener('mouseover', handleMouseOver);
-              button.addEventListener('mouseout', handleMouseOut);
+              button.addEventListener("mouseover", handleMouseOver);
+              button.addEventListener("mouseout", handleMouseOut);
             }
           }
 
-          // Функции для обработки событий mouseover/mouseout
           function handleMouseOver() {
             button.style.backgroundColor = "#e38571";
           }
@@ -3276,21 +3647,20 @@ function updateButtonStyleOnAllTabs(style, reset = false) {
             button.style.backgroundColor = "rgb(221, 109, 85)";
           }
         },
-        args: [style, reset]
+        args: [style, reset],
       });
     });
   });
 }
 
 async function clickAndMove(currentTabId, remainingClicks) {
-
   function setStopState(value) {
     isStop = value;
     chrome.storage.local.set({ isStop: value });
   }
 
   function getStopState(callback) {
-    chrome.storage.local.get('isStop', (result) => {
+    chrome.storage.local.get("isStop", (result) => {
       callback(result.isStop !== undefined ? result.isStop : false);
     });
   }
@@ -3303,35 +3673,36 @@ async function clickAndMove(currentTabId, remainingClicks) {
           if (moreTabsExist) {
             clickAndMove(nextTabId, remainingClicks - 1);
           } else {
-            updateButtonStyleOnAllTabs({
-              backgroundColor: 'rgb(221, 109, 85)',
-              cursor: 'pointer',
-              color: 'white'
-            }, true);
+            updateButtonStyleOnAllTabs(
+              {
+                backgroundColor: "rgb(221, 109, 85)",
+                cursor: "pointer",
+                color: "white",
+              },
+              true,
+            );
             setStopState(false);
           }
         });
       }, DELAY_AFTER_OPENING_NEW_TAB + DELAY_BEFORE_OPENING_NEW_TAB);
     } else {
-      updateButtonStyleOnAllTabs({
-        backgroundColor: 'rgb(221, 109, 85)',
-        cursor: 'pointer',
-        color: 'white'
-      }, true);
+      updateButtonStyleOnAllTabs(
+        {
+          backgroundColor: "rgb(221, 109, 85)",
+          cursor: "pointer",
+          color: "white",
+        },
+        true,
+      );
       setStopState(false);
     }
   });
 }
 
 function checkForMoreTabs(currentTabId, callback) {
-  // Получаем все вкладки в текущем окне
-  chrome.tabs.query({ currentWindow: true }, function(tabs) {
-    // Находим индекс текущей вкладки в массиве всех вкладок
-    let currentTabIndex = tabs.findIndex(tab => tab.id === currentTabId);
-
-    // Если текущая вкладка не последняя, значит есть вкладки справа
+  chrome.tabs.query({ currentWindow: true }, function (tabs) {
+    let currentTabIndex = tabs.findIndex((tab) => tab.id === currentTabId);
     if (currentTabIndex >= 0 && currentTabIndex < tabs.length - 1) {
-      // Возвращаем ID следующей вкладки
       callback(true, tabs[currentTabIndex + 1].id);
     } else {
       tabsToClick = 0;
@@ -3341,11 +3712,9 @@ function checkForMoreTabs(currentTabId, callback) {
 }
 
 function getNumberOfTabsToClick(currentTabId, callback) {
-  // Получаем все вкладки в текущем окне
-  chrome.tabs.query({ currentWindow: true }, function(tabs) {
-    let currentTabIndex = tabs.findIndex(tab => tab.id === currentTabId);
+  chrome.tabs.query({ currentWindow: true }, function (tabs) {
+    let currentTabIndex = tabs.findIndex((tab) => tab.id === currentTabId);
     if (currentTabIndex >= 0) {
-      // Количество вкладок справа
       let numberOfTabsToClick = tabs.length - currentTabIndex;
       callback(numberOfTabsToClick);
     } else {
@@ -3353,22 +3722,3 @@ function getNumberOfTabsToClick(currentTabId, callback) {
     }
   });
 }
-
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (request.action === "clickAndMove") {
-    updateButtonStyleOnAllTabs({
-      backgroundColor: 'grey',
-      cursor: 'not-allowed',
-      color: 'white',
-      hoverBackgroundColor: 'darkgrey'
-    });
-
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      const currentTabId = tabs[0].id;
-      getNumberOfTabsToClick(currentTabId, function(numberOfTabsToClick) {
-        tabsToClick = numberOfTabsToClick;
-        clickAndMove(currentTabId, tabsToClick);
-      });
-    });
-  }
-});

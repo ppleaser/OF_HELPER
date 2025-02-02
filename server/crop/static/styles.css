@@ -141,10 +141,7 @@ video {
     padding: 10px; 
     z-index: 9999999;
     width: 100%;
-}
-
-#delete-status {
-    bottom: 44px;
+    width: 300px
 }
 
 .infoMessage {
@@ -162,7 +159,7 @@ video {
 
 .len-messages {
     position: fixed;
-    left: 260px;
+    left: 210px;
     z-index: 10;
     color:#6BFF96;
     font-family: 'Varela Round', sans-serif;
@@ -172,6 +169,8 @@ video {
     background: #000000;
     padding: 5px;
     border-radius: 0px 0px 5px 5px;
+    text-align: center;
+    width: 100px;
 }
 
 
@@ -341,7 +340,7 @@ html {
 #hints-container {
   position: fixed;
   top: 110px;
-  left: 355px;
+  left: 330px;
   background-color: rgb(107, 143, 255);
   padding: 5px 5px 0px 5px;
   border-radius: 10px;
@@ -687,4 +686,87 @@ input[type="checkbox"] {
   background: #ffffff;
   border-radius: 3px;
   border: none;
+}
+
+.auto-delete-container {
+  position: fixed;
+  left: 330px;
+  bottom: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 150px;
+  padding: 5px;
+  background: rgb(107, 143, 255);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+}
+
+.auto-delete-container:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 80px;
+  height: 34px;
+  flex-shrink: 0;
+  cursor: pointer;
+  background: #e0e0e0;
+  border-radius: 34px;
+  transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  border: solid black 2px
+}
+
+.toggle-switch.active {
+  background-color: #488b5b !important;
+}
+
+.toggle-switch:not(.active) {
+  background-color: #d9534f !important; 
+}
+
+.slider {
+  position: absolute;
+  content: "";
+  height: 26px;
+  width: 26px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  border-radius: 50%;
+  transition: all 0.3s;
+}
+
+.toggle-switch.active .slider {
+  transform: translateX(46px);
+}
+
+.file-stats {
+  font-family: 'Varela Round', sans-serif;
+  font-size: 14px;
+  color: #424242;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.file-stats span {
+  font-weight: 600;
+  color: #2d2d2d;
+}
+
+#file-count {
+  color: #2196F3;
+}
+
+#file-size {
+  color: #4CAF50;
 }
