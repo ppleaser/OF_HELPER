@@ -45,6 +45,7 @@ function updateTabCounterOnActiveTab(isReset) {
             document.getElementById("cont1"),
             document.getElementById("cont2"),
             document.getElementById("cont3"),
+            document.getElementById("switch-button"),
           ];
           elements.forEach((el) => {
             if (el) {
@@ -2540,6 +2541,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           container.style.flexShrink = "0";
           container.style.justifyContent = "space-between";
           container.style.zIndex = "9999";
+          container.style.transition = "all 0.3s"
           container.id = "cont1";
 
           const container2 = document.createElement("div");
@@ -2552,11 +2554,11 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           container2.style.alignItems = "center";
           container2.style.fontFamily = "'Josefin Sans', sans-serif";
           container2.style.color = "white";
-
           container2.style.width = "90%";
           container2.style.flexShrink = "0";
           container2.style.justifyContent = "center";
           container2.style.zIndex = "9999";
+          container2.style.transition = "all 0.3s"
           container2.id = "cont2";
 
           const containerNew = document.createElement("div");
@@ -2573,6 +2575,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           containerNew.style.flexShrink = "0";
           containerNew.style.justifyContent = "end";
           containerNew.style.zIndex = "9999";
+          containerNew.style.transition = "all 0.3s"
           containerNew.id = "cont3";
 
           addSplitButton(
@@ -2796,6 +2799,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               transition: all 0.5s;
               outline: none;
           `;
+          switchButton.id = "switch-button";
 
           switchButton.innerHTML = `
           <svg viewBox="0 0 330 330" width="16" height="16">
