@@ -46,6 +46,7 @@ function updateTabCounterOnActiveTab(isReset) {
             document.getElementById("cont2"),
             document.getElementById("cont3"),
             document.getElementById("switch-button"),
+            document.getElementById("fakeMakeButton"),
           ];
           elements.forEach((el) => {
             if (el) {
