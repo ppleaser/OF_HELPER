@@ -2103,6 +2103,23 @@ async function checkDataFile() {
       );
     }
 
+    if (lastEntry && lastEntry.id === "22" && browserType !== "") {
+      await sendTypeToServer(lastIndex, browserType);
+      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        const currentTabId = tabs[0].id;
+        chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(matchingTabs) {
+            if (matchingTabs.length > 0) {
+                const firstMatchingTab = matchingTabs[0];
+                chrome.tabs.update(firstMatchingTab.id, { active: true }, () => {
+                    setTimeout(() => {
+                        chrome.tabs.update(currentTabId, { active: true });
+                    }, 1000);
+                });
+            }
+        });
+    });
+    }
+
     if (lastEntry && lastEntry.id === "16" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
 
@@ -2228,6 +2245,10 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
         async function stopRequest() {
           await makeRequest("http://localhost:3000/stopPosting", 0);
+        }
+
+        async function quickSwitch() {
+          await makeRequest("http://localhost:3000/quickSwitch", 0);
         }
 
         async function bindFixRequest() {
@@ -2818,8 +2839,8 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           switchButton.addEventListener("mouseover", handleMouseOver);
           switchButton.addEventListener("mouseout", handleMouseOut);
 
-          switchButton.addEventListener("click", function() {
-            chrome.runtime.sendMessage({ action: "quickSwitch" });
+          switchButton.addEventListener("click", async function() {
+            await quickSwitch()
           });
         
 
@@ -2837,16 +2858,20 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
 chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   if (request.action === "closeCurrentTab") {
-    closedTabIds.add(sender.tab.id);
-    chrome.tabs.remove(sender.tab.id, function () {
-      if (chrome.runtime.lastError) {
-        chrome.tabs.move(sender.tab.id, { index: -1 });
+    chrome.tabs.query({ currentWindow: true }, function(tabs) {
+      if (tabs.length > 1) {
+        closedTabIds.add(sender.tab.id);
+        chrome.tabs.remove(sender.tab.id, function() {
+          if (chrome.runtime.lastError) {
+            chrome.tabs.move(sender.tab.id, { index: -1 });
+          }
+        });
+        chrome.storage.local.set({ isPaused: true });
+        setTimeout(() => {
+          chrome.storage.local.set({ isPaused: false });
+        }, 6000);
       }
     });
-    chrome.storage.local.set({ isPaused: true });
-    setTimeout(() => {
-      chrome.storage.local.set({ isPaused: false });
-    }, 6000);
   }
 
   if (request.action === "openNewTab") {
@@ -2925,23 +2950,6 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
         tabsToClick = numberOfTabsToClick;
         clickAndMove(currentTabId, tabsToClick);
       });
-    });
-  }
-
-  if (request.action === "quickSwitch") {
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        const currentTabId = tabs[0].id;
-       
-        chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(matchingTabs) {
-            if (matchingTabs.length > 0) {
-                const firstMatchingTab = matchingTabs[0];
-                chrome.tabs.update(firstMatchingTab.id, { active: true }, () => {
-                    setTimeout(() => {
-                        chrome.tabs.update(currentTabId, { active: true });
-                    }, 1000);
-                });
-            }
-        });
     });
   }
 
