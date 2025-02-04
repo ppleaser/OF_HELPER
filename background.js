@@ -149,7 +149,6 @@ function updateTabCounterOnActiveTab(isReset) {
                   tabs.length >= 5
                 ) {
                   closedTabIds.add(tab.id);
-                  closedTabsCount++;
                   chrome.tabs.remove(tab.id);
                 }
               });
@@ -1127,7 +1126,7 @@ function addTimeToPost(textInput, isApart, browserType) {
         var parts = textInput.split("-");
         var textInput = parseInt(parts[0]);
         newMinutes = parseInt(parts[1]);
-        newMinutes = currentTimeInMinutes + newMinutes + 10;
+        newMinutes = currentTimeInMinutes + newMinutes
 
         if (newMinutes >= 60) {
           newMinutes -= 60;
