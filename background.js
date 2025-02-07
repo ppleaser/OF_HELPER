@@ -30,6 +30,73 @@ let isStop = false;
 const intervals = new Map();
 let processing = false;
 
+function checkAndCloseTab(tabId, serializedIntervals) {
+  const intervalsArray = Object.entries(serializedIntervals);
+  const hasInterval = intervalsArray.some(([key]) => key === tabId.toString());
+
+  const cleanupInterval = (tabId) => {
+    chrome.runtime.sendMessage({
+      type: 'clearInterval',
+      tabId: tabId
+    });
+  };
+  
+  if (hasInterval) {
+    cleanupInterval()
+  }
+
+  const editor = document.querySelector(".tiptap.ProseMirror");
+  if (editor?.getAttribute("data-is-empty") === "true") {
+    chrome.runtime.sendMessage({ action: "closeTab", tabId });
+    return;
+  }
+
+  const pressBind = () => {
+    const intervalId = setInterval(() => {
+      const selector = document.querySelector(
+        '[at-attr="submit_post"]'
+      );
+      
+      if (!selector) {
+        cleanupInterval(tabId);
+        return;
+      }
+
+      const errorNode = document.querySelector(
+        ".b-reminder-form.m-error div"
+      );
+
+      if (errorNode?.textContent.match(/Internal|Nothing|Daily/i)) {
+        cleanupInterval(tabId);
+        return;
+      }
+
+      if (selector?.disabled === false) {
+        selector.click();
+        
+        setTimeout(() => {
+          const confirmButton = Array.from(
+            document.querySelectorAll("button.g-btn")
+          ).find((b) => b.textContent.trim() === "Yes");
+          confirmButton?.click();
+          cleanupInterval(tabId);
+          return
+        }, 500);
+      }
+    }, 5000);
+
+    chrome.runtime.sendMessage({
+      type: 'setInterval',
+      tabId: tabId,
+      intervalId: intervalId
+    });
+  };
+
+  if (!document.querySelector(".b-reminder-form.m-error")) {
+    pressBind();
+  }
+}
+
 function updateTabCounterOnActiveTab(isReset) {
   chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
     if (tabs.length === 0) return;
@@ -129,7 +196,6 @@ function updateTabCounterOnActiveTab(isReset) {
           ([activeTab]) => {
             processing = false;
             if (!activeTab || !tabs?.length) return;
-
             tabs
               .filter((tab) => tab.id !== activeTab.id)
               .slice(0, 3)
@@ -141,7 +207,7 @@ function updateTabCounterOnActiveTab(isReset) {
                   chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     func: checkAndCloseTab,
-                    args: [tab.id],
+                    args: [tab.id, Object.fromEntries(intervals)],
                   });
                 } else if (
                   tab.url.startsWith("https://onlyfans.com") &&
@@ -157,63 +223,21 @@ function updateTabCounterOnActiveTab(isReset) {
       },
     );
   }
-
-  function checkAndCloseTab(tabId) {
-    if (intervals.has(tabId)) {
-      clearInterval(intervals.get(tabId));
-      intervals.delete(tabId);
-    }
-
-    const editor = document.querySelector(".tiptap.ProseMirror");
-    if (editor?.getAttribute("data-is-empty") === "true") {
-      chrome.runtime.sendMessage({ action: "closeTab", tabId });
-      return;
-    }
-
-    const pressBind = () => {
-      const intervalId = setInterval(() => {
-        const selector = document.querySelector(
-          '[at-attr="submit_post"], #content button.g-btn',
-        );
-        const errorNode = document.querySelector(
-          ".b-reminder-form.m-error div",
-        );
-
-        if (errorNode?.textContent.match(/Internal|Nothing|Daily/i)) {
-          cleanupInterval(tabId);
-          return;
-        }
-
-        if (selector?.disabled === false) {
-          selector.click();
-          setTimeout(() => {
-            const confirmButton = Array.from(
-              document.querySelectorAll("button.g-btn"),
-            ).find((b) => b.textContent.trim() === "Yes");
-            confirmButton?.click();
-            cleanupInterval(tabId);
-          }, 500);
-        }
-      }, 5000);
-      intervals.set(tabId, intervalId);
-    };
-
-    if (!document.querySelector(".b-reminder-form.m-error")) pressBind();
-  }
-
-  function cleanupInterval(tabId) {
-    if (intervals.has(tabId)) {
-      clearInterval(intervals.get(tabId));
-      intervals.delete(tabId);
-    }
-  }
-
-  // Обработчики событий
-  chrome.tabs.onRemoved.addListener((tabId) => {
-    cleanupInterval(tabId);
-    closedTabIds.delete(tabId);
-  });
 }
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case 'setInterval':
+      intervals.set(message.tabId, message.intervalId);
+      break;
+    case 'clearInterval':
+      if (intervals.has(message.tabId)) {
+        clearInterval(intervals.get(message.tabId));
+        intervals.delete(message.tabId);
+      }
+      break;
+  }
+});
 
 function openNewTab() {
   chrome.runtime.sendMessage({ action: "openNewTab" });
@@ -967,7 +991,6 @@ async function addTextToPost(
     };
 
     mediaElement.onerror = function () {
-      console.error("Ошибка загрузки медиафайла");
       isUploading = false;
     };
   }
@@ -1052,12 +1075,28 @@ function addTimeToPost(textInput, isApart, browserType) {
       }
     }
 
-    function continueExecution(textInput) {
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+          resolve();
+          return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = (e) => reject(e);
+        document.head.appendChild(script);
+      });
+    }
+
+    async function continueExecution(textInput) {
       let closeButton = document.querySelector(
         "#make_post_form > div.b-make-post > div > div.b-dropzone__previews.b-make-post__schedule-expire-wrapper.g-sides-gaps > div.b-post-piece.b-dropzone__preview.m-schedule.m-loaded.g-pointer-cursor.m-row > button",
       );
       if (closeButton) {
         closeButton.dispatchEvent(clickEvent);
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       if (textInput === "0" && (!isApart || browserType === "browser1")) {
@@ -1066,6 +1105,10 @@ function addTimeToPost(textInput, isApart, browserType) {
 
       if (textInput === "n") {
         textInput = "0";
+      }
+
+      if (textInput.length === 1 || textInput.length === 2 || textInput.length === 3 ) {
+         await loadScript(chrome.runtime.getURL('inject.js'));
       }
 
       const button1 = document.querySelector(
@@ -1081,8 +1124,9 @@ function addTimeToPost(textInput, isApart, browserType) {
       }
 
       let currentDate = new Date();
-      currentDate.setMinutes(currentDate.getMinutes() + 10);
 
+      currentDate.setMinutes(currentDate.getMinutes());
+    
       let monthNames = [
         "January",
         "February",
@@ -1114,7 +1158,7 @@ function addTimeToPost(textInput, isApart, browserType) {
 
       let nextDate = new Date(currentDate);
       nextDate.setDate(nextDate.getDate() + 1);
-
+      
       let nextDayOfMonth = nextDate.getDate();
 
       let dayAfterTomorrow = new Date(currentDate);
@@ -1130,7 +1174,7 @@ function addTimeToPost(textInput, isApart, browserType) {
 
         if (newMinutes >= 60) {
           newMinutes -= 60;
-          if (currentTimeInMinutes <= 50) textInput += 1;
+          newHours = newHours + 1
         }
         if (newMinutes < 10) {
           newMinutes = "0" + newMinutes;
@@ -1145,8 +1189,8 @@ function addTimeToPost(textInput, isApart, browserType) {
         textInput.length === 2 ||
         textInput.length === 3
       ) {
+        
         hours = currentTimeInHours + parseInt(textInput);
-
         if (isApart) {
           let number = parseInt(browserType.replace(/\D/g, ""));
           hours = hours + number - 1;
@@ -1160,16 +1204,7 @@ function addTimeToPost(textInput, isApart, browserType) {
           futureDate.setDate(futureDate.getDate() + additionalDays);
           currentDayOfMonth = futureDate.getDate();
           newHours = hours % 24;
-
-          if (currentTimeInMinutes >= 50) {
-            newHours = newHours + 1;
-            if (newHours === 24) {
-              newHours = 0;
-              futureDate.setDate(futureDate.getDate() + 1);
-              currentDayOfMonth = futureDate.getDate();
-            }
-          }
-
+        
           if (newHours === 0) {
             newHours = 12;
             period = "a";
@@ -1197,11 +1232,10 @@ function addTimeToPost(textInput, isApart, browserType) {
               }
             }
           }, 1000);
-        } else if (
-          hours === 24 ||
-          (currentTimeInMinutes >= 50 && hours === 23)
-        ) {
-          currentDayOfMonth = currentDayOfMonth + 1;
+        } 
+        
+        else if (hours === 24 ) {
+          currentDayOfMonth = currentDayOfMonth + 1
           if (currentDayOfMonth !== nextDayOfMonth) {
             currentDayOfMonth = nextDayOfMonth;
             setTimeout(() => {
@@ -1221,17 +1255,9 @@ function addTimeToPost(textInput, isApart, browserType) {
 
           newHours = 12;
 
-          if (hours === 24 && currentTimeInMinutes >= 50) {
-            newHours = 1;
-          }
-
           period = "a";
-        } else if (hours < 24 || (currentTimeInMinutes < 50 && hours === 23)) {
+        } else if (hours < 24) {
           newHours = hours;
-
-          if (currentTimeInMinutes >= 50) {
-            newHours = newHours + 1;
-          }
 
           if (newHours < 12) {
             period = "a";
@@ -2114,6 +2140,11 @@ async function checkDataFile() {
                     setTimeout(() => {
                         chrome.tabs.update(currentTabId, { active: true });
                     }, 1000);
+                    chrome.scripting.executeScript({
+                      target: { tabId: firstMatchingTab.id },
+                      func: checkAndCloseTab,
+                      args: [firstMatchingTab.id, Object.fromEntries(intervals)],
+                    });
                 });
             }
         });
@@ -2992,7 +3023,6 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 
   if (request.action === "closeTab" && sender.tab?.id) {
     closedTabIds.add(sender.tab.id);
-    closedTabsCount++;
     chrome.tabs.remove(sender.tab.id);
   }
 });
@@ -3271,7 +3301,6 @@ async function pressBindFix(tab) {
                     };
 
                   mediaElement.onerror = function (error) {
-                    console.error("Ошибка загрузки медиафайла:", error);
                     isUploading = false;
                   };
                 }
@@ -3545,7 +3574,7 @@ chrome.tabs.onRemoved.addListener(function (tabId) {
   if (onlyFansOpenTabs.has(tabId) && closedTabIds.has(tabId)) {
     closedTabIds.delete(tabId);
     onlyFansOpenTabs.delete(tabId); 
-    closedTabsCount += 1; 
+    closedTabsCount++;
     lastClosedTime = new Date();
     updateTabCounterOnActiveTab(false);
   } else if (onlyFansOpenTabs.has(tabId)) {

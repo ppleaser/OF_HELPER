@@ -121,14 +121,13 @@ async function copyVideoToClipboard(videoPath, event) {
             copyButton.classList.remove('animate');
         }, 200);
 
-        await fetch('http://localhost:3000/copy-video', {
+        await fetch('/copy-video', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ path: videoPath }),
                 });
-
     } catch (err) {
         console.error('Could not copy video: ', err);
     }

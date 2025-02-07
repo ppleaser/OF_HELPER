@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OF HELPER",
-  "version": "5.4.3",
+  "version": "5.5",
   "description": "By @yen_ofsfs",
   "permissions": [
     "activeTab",
@@ -15,7 +15,7 @@
   "host_permissions": ["*://*/*"],
   "web_accessible_resources": [
     {
-      "resources": ["server/crop/images/*", "server/files/*"],
+      "resources": ["inject.js", "server/crop/images/*", "server/files/*"],
       "matches": ["<all_urls>"]
     }
   ],
