@@ -2134,7 +2134,7 @@ async function checkDataFile() {
       chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
         const currentTabId = tabs[0].id;
         chrome.tabs.query({ url: "https://onlyfans.com/*" }, function(matchingTabs) {
-            if (matchingTabs.length > 0) {
+            if (matchingTabs.length > 2) {
                 const firstMatchingTab = matchingTabs[0];
                 chrome.tabs.update(firstMatchingTab.id, { active: true }, () => {
                     setTimeout(() => {
@@ -2817,11 +2817,6 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             animationTimeout = setTimeout(resetState, 100);
           });
 
-          function setStopState(value) {
-            isStop = value;
-            chrome.storage.local.set({ isStop: value });
-          }
-
           stopPostingPart.addEventListener("click", async (e) => {
             e.stopPropagation();
             await animateButton(stopButton, stopPostingPart, stopRequest);
@@ -2829,7 +2824,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
           stopAutoPart.addEventListener("click", async (e) => {
             e.stopPropagation();
-            setStopState(true);
+            chrome.storage.local.set({ isStop: true });
             await animateButton(stopButton, stopAutoPart);
           });
 
@@ -2968,13 +2963,6 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   }
 
   if (request.action === "clickAndMove") {
-    updateButtonStyleOnAllTabs({
-      backgroundColor: "grey",
-      cursor: "not-allowed",
-      color: "white",
-      hoverBackgroundColor: "darkgrey",
-    });
-
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       const currentTabId = tabs[0].id;
       getNumberOfTabsToClick(currentTabId, function (numberOfTabsToClick) {
@@ -3585,10 +3573,6 @@ chrome.tabs.onRemoved.addListener(function (tabId) {
 
 setInterval(() => updateTabCounterOnActiveTab(false), 1000);
 
-chrome.runtime.onStartup.addListener(function () {
-  updateTabCounterOnPage();
-});
-
 function checkDataFileAndSetTimeout() {
   checkDataFile().then(() => {
     setTimeout(checkDataFileAndSetTimeout, ALL_ACTIONS_MONITOR);
@@ -3626,117 +3610,248 @@ async function sendTypeToServer(dataIndex, browserType) {
 
 let tabsToClick = 0;
 
-function clickOnNewTab(tabId) {
-  chrome.tabs.update(tabId, { active: true }, function () {
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      func: () => {
-        requestAnimationFrame(() => {
-          const splitButton = document.getElementById("split-button2");
-          if (splitButton) {
-            const rect = splitButton.getBoundingClientRect();
-            const mouseOverEvent = new MouseEvent("mouseover", {
-              bubbles: true,
-              cancelable: true,
-              clientX: rect.left + rect.width / 4,
-              clientY: rect.top + rect.height / 2, 
-            });
-            splitButton.dispatchEvent(mouseOverEvent);
-            setTimeout(() => {
-              const clickEvent = new MouseEvent("click", {
-                bubbles: true,
-                cancelable: true,
-                clientX: rect.left + rect.width / 4,
-                clientY: rect.top + rect.height / 2, 
-              });
-              splitButton.dispatchEvent(clickEvent);
-            }, 0);
+function clickOnNewTab(tabId, callback) {
+  chrome.tabs.get(tabId, tab => {
+      if (!tab || chrome.runtime.lastError) {
+          callback?.();
+          return;
+      }
+
+      if (tab.url.startsWith('chrome://')) {
+          console.log('Skipping chrome:// URL');
+          callback?.();
+          return;
+      }
+
+      chrome.tabs.update(tabId, { active: true }, () => {
+          if (chrome.runtime.lastError) {
+              callback?.();
+              return;
           }
-        });
-      },
-      args: [],
+
+          chrome.scripting.executeScript({
+              target: { tabId: tabId },
+              func: () => {
+                  requestAnimationFrame(() => {
+                      const splitButton = document.getElementById("split-button2");
+                      if (splitButton) {
+                          const rect = splitButton.getBoundingClientRect();
+                          const mouseOverEvent = new MouseEvent("mouseover", {
+                              bubbles: true,
+                              cancelable: true,
+                              clientX: rect.left + rect.width / 4,
+                              clientY: rect.top + rect.height / 2,
+                          });
+                          splitButton.dispatchEvent(mouseOverEvent);
+                          setTimeout(() => {
+                              const clickEvent = new MouseEvent("click", {
+                                  bubbles: true,
+                                  cancelable: true,
+                                  clientX: rect.left + rect.width / 4,
+                                  clientY: rect.top + rect.height / 2,
+                              });
+                              splitButton.dispatchEvent(clickEvent);
+                          }, 0);
+                      }
+                  });
+              }
+          }, () => {
+              if (chrome.runtime.lastError) {
+                  console.log('Script execution error:', chrome.runtime.lastError);
+              }
+              callback?.();
+          });
+      });
+  });
+}
+
+async function getTabsAfterCurrent(currentTabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+      const currentIndex = tabs.findIndex(tab => tab.id === currentTabId);
+      resolve(tabs.slice(currentIndex + 1));
     });
   });
 }
 
-function updateButtonStyleOnAllTabs(style, reset = false) {
-  chrome.tabs.query({ currentWindow: true }, function (tabs) {
-    tabs.forEach((tab) => {
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (style, reset) => {
-          const button = document.getElementById("autopost-button");
-          if (button) {
-            button.style.backgroundColor = style.backgroundColor || "";
-            button.style.color = style.color || "";
-            button.style.cursor = style.cursor || "";
+async function disableButtonsOnTabs(tabs, style) {
+  return Promise.all(tabs.map(tab => 
+    new Promise((resolve) => {
 
-            if (reset) {
+      chrome.tabs.get(tab.id, currentTab => {
+        if (!currentTab || chrome.runtime.lastError || currentTab.url.startsWith('chrome://')) {
+          resolve();
+          return;
+        }
+
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (style) => {
+            const button = document.getElementById("autopost-button");
+            if (button) {
+              if (!document.getElementById('auto-post-styles')) {
+                const styleSheet = document.createElement("style");
+                styleSheet.id = 'auto-post-styles';
+
+                styleSheet.textContent = `
+                    #autopost-button:disabled {
+                        background-color: #cccccc !important;
+                        cursor: not-allowed !important;
+                        color: white !important;
+                    }
+                    #autopost-button:disabled:hover {
+                        background-color: #cccccc !important;
+                    }
+                `;
+                document.head.insertBefore(styleSheet, document.head.firstChild);
+              }
+              
+              function handleMouseOver() {
+                if (!button.disabled) {
+                  button.style.backgroundColor = "#e38571";
+                }
+              }
+              
+              function handleMouseOut() {
+                if (!button.disabled) {
+                  button.style.backgroundColor = "rgb(221, 109, 85)";
+                }
+              }
+              
               button.removeEventListener("mouseover", handleMouseOver);
               button.removeEventListener("mouseout", handleMouseOut);
-            } else {
-              button.addEventListener("mouseover", handleMouseOver);
-              button.addEventListener("mouseout", handleMouseOut);
+              
+              button.style.backgroundColor = style.backgroundColor;
+              button.style.color = style.color;
+              button.style.cursor = style.cursor;
+              button.disabled = true;
             }
+          },
+          args: [style],
+        }, (results) => {
+          if (chrome.runtime.lastError) {
+            console.log('Script execution error:', chrome.runtime.lastError);
           }
-
-          function handleMouseOver() {
-            button.style.backgroundColor = "#e38571";
-          }
-
-          function handleMouseOut() {
-            button.style.backgroundColor = "rgb(221, 109, 85)";
-          }
-        },
-        args: [style, reset],
+          resolve();
+        });
       });
-    });
-  });
+    })
+  ));
 }
 
 async function clickAndMove(currentTabId, remainingClicks) {
-  function setStopState(value) {
-    isStop = value;
-    chrome.storage.local.set({ isStop: value });
-  }
-
-  function getStopState(callback) {
-    chrome.storage.local.get("isStop", (result) => {
-      callback(result.isStop !== undefined ? result.isStop : false);
+  try {
+    const tabsAfterCurrent = await getTabsAfterCurrent(currentTabId);
+    
+    await disableButtonsOnTabs([...tabsAfterCurrent, { id: currentTabId }], {
+      backgroundColor: "#cccccc",
+      cursor: "not-allowed",
+      color: "white"
     });
-  }
 
-  getStopState((stopFlag) => {
-    if (remainingClicks > 0 && !stopFlag) {
-      clickOnNewTab(currentTabId);
-      setTimeout(() => {
-        checkForMoreTabs(currentTabId, (moreTabsExist, nextTabId) => {
-          if (moreTabsExist) {
-            clickAndMove(nextTabId, remainingClicks - 1);
-          } else {
-            updateButtonStyleOnAllTabs(
-              {
-                backgroundColor: "rgb(221, 109, 85)",
-                cursor: "pointer",
-                color: "white",
-              },
-              true,
-            );
-            setStopState(false);
-          }
-        });
-      }, DELAY_AFTER_OPENING_NEW_TAB + DELAY_BEFORE_OPENING_NEW_TAB);
-    } else {
-      updateButtonStyleOnAllTabs(
-        {
-          backgroundColor: "rgb(221, 109, 85)",
-          cursor: "pointer",
-          color: "white",
-        },
-        true,
-      );
-      setStopState(false);
+    const tabExists = await new Promise((resolve) => {
+      chrome.tabs.get(currentTabId, (tab) => {
+        resolve(!!tab && !chrome.runtime.lastError);
+      });
+    });
+
+    if (!tabExists) {
+      await resetAllButtonStyles();
+      return;
     }
+
+    const stopState = await new Promise((resolve) => {
+      chrome.storage.local.get("isStop", (result) => {
+        resolve(result.isStop !== undefined ? result.isStop : false);
+      });
+    });
+
+    if (remainingClicks > 0 && !stopState) {
+      await new Promise((resolve) => clickOnNewTab(currentTabId, resolve));
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, DELAY_AFTER_OPENING_NEW_TAB + DELAY_BEFORE_OPENING_NEW_TAB)
+      );
+
+      const hasMoreTabs = await new Promise((resolve) => {
+        checkForMoreTabs(currentTabId, (moreTabsExist, nextTabId) => {
+          if (moreTabsExist && nextTabId) {
+            clickAndMove(nextTabId, remainingClicks - 1);
+          }
+          resolve(moreTabsExist);
+        });
+      });
+
+      if (!hasMoreTabs) {
+        await resetAllButtonStyles();
+      }
+    } else {
+      await resetAllButtonStyles();
+    }
+  } catch (error) {
+    console.log('Error in clickAndMove:', error);
+    await resetAllButtonStyles();
+  }
+}
+
+async function resetAllButtonStyles() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ currentWindow: true }, function (tabs) {
+      Promise.all(tabs.map(tab => 
+        new Promise((resolve) => {
+
+          chrome.tabs.get(tab.id, currentTab => {
+            if (!currentTab || chrome.runtime.lastError || currentTab.url.startsWith('chrome://')) {
+              resolve();
+              return;
+            }
+
+            chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: () => {
+                const button = document.getElementById("autopost-button");
+                if (button) {
+                  const oldStyle = document.querySelector('style');
+                  if (oldStyle) {
+                    oldStyle.remove();
+                  }
+                  
+                  function handleMouseOver() {
+                    if (!button.disabled) {
+                      button.style.backgroundColor = "#e38571";
+                    }
+                  }
+                  
+                  function handleMouseOut() {
+                    if (!button.disabled) {
+                      button.style.backgroundColor = "rgb(221, 109, 85)";
+                    }
+                  }
+                  
+                  button.removeEventListener("mouseover", handleMouseOver);
+                  button.removeEventListener("mouseout", handleMouseOut);
+                  
+                  button.style.backgroundColor = "rgb(221, 109, 85)";
+                  button.style.color = "white";
+                  button.style.cursor = "pointer";
+                  button.disabled = false;
+                  
+                  button.addEventListener("mouseover", handleMouseOver);
+                  button.addEventListener("mouseout", handleMouseOut);
+                }
+              }
+            }, (results) => {
+              if (chrome.runtime.lastError) {
+                console.log('Script execution error:', chrome.runtime.lastError);
+              }
+              resolve();
+            });
+          });
+        })
+      )).then(() => {
+        chrome.storage.local.set({ isStop: false }, resolve);
+      });
+    });
   });
 }
 
