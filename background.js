@@ -202,7 +202,7 @@ function updateTabCounterOnActiveTab(isReset) {
               .forEach((tab) => {
                 if (
                   tab.url === "https://onlyfans.com/posts/create" &&
-                  tabs.length >= 20
+                  tabs.length >= 30
                 ) {
                   chrome.scripting.executeScript({
                     target: { tabId: tab.id },
