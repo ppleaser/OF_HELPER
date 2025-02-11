@@ -1028,7 +1028,7 @@ async function addTextToPost(
                 for (let mutation of mutationsList) {
                   if (mutation.type === "childList") {
                     const button2 = document.querySelector(
-                      "#ModalPostExpiration___BV_modal_body_ > div.b-tabs__nav.m-nv.m-tab-rounded.m-reset-mb.m-single-current > ul > li:nth-child(2) > button",
+                      "#ModalPostExpiration___BV_modal_body_ > div.b-tabs__nav.m-nv.m-tab-rounded.mb-0.m-single-current > ul > li:nth-child(2) > button",
                     );
                     if (button2) {
                       button2.dispatchEvent(clickEvent);
