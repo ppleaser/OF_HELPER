@@ -4,14 +4,6 @@ const ALL_ACTIONS_MONITOR = 200;
 const DELAY_GREEN_BUTTON = 500;
 const FAKE_SS_DELAY = 100;
 
-// Для MacOS (поменяйте цифры выше на примерно такие):
-// const DELAY_AFTER_OPENING_NEW_TAB = 1500
-// const DELAY_BEFORE_OPENING_NEW_TAB = 800
-// const ALL_ACTIONS_MONITOR = 200
-// const DELAY_GREEN_BUTTON = 500
-// const FAKE_SS_DELAY = 300
-// :)
-
 console.error = function () {};
 
 async function executeScriptIfValid(activeTab, details) {
@@ -114,6 +106,7 @@ function updateTabCounterOnActiveTab(isReset) {
             document.getElementById("cont3"),
             document.getElementById("switch-button"),
             document.getElementById("fakeMakeButton"),
+            document.getElementById("version"),
           ];
           elements.forEach((el) => {
             if (el) {
@@ -163,10 +156,10 @@ function updateTabCounterOnActiveTab(isReset) {
               counter.id = "tabCounter";
               counter.style.position = "fixed";
               counter.style.bottom = "60px";
-              counter.style.left = "20px";
+              counter.style.left = "15px";
               counter.style.fontFamily = "'Josefin Sans', sans-serif";
               counter.style.fontSize = "20px";
-              counter.style.padding = "10px";
+              counter.style.padding = "5px";
               counter.style.borderRadius = "5px";
               counter.style.zIndex = "99999";
               document.body.appendChild(counter);
@@ -274,25 +267,25 @@ async function toggleColors() {
 }
 
 async function instantPostOn() {
-  await chrome.storage.sync.set({ postChecked: true });
+  await chrome.storage.local.set({ postChecked: true });
   const button = document.getElementById("instantPost");
   button.style.background = "#2D9B37";
 }
 
 async function instantPostOff() {
-  await chrome.storage.sync.set({ postChecked: false });
+  await chrome.storage.local.set({ postChecked: false });
   const button = document.getElementById("instantPost");
   button.style.background = "#DD6D55";
 }
 
 async function fakeColorsOn() {
-  await chrome.storage.sync.set({ fakeChecked: true });
+  await chrome.storage.local.set({ fakeChecked: true });
   const button = document.getElementById("fakeButton");
   button.style.background = "#6E8C6E";
 }
 
 async function fakeColorsOff() {
-  await chrome.storage.sync.set({ fakeChecked: false });
+  await chrome.storage.local.set({ fakeChecked: false });
   const button = document.getElementById("fakeButton");
   button.style.background = "#8C6E6E"; 
 }
@@ -311,23 +304,31 @@ async function searchPosts() {
 
     for (const line of lines) {
       const url = `${baseUrl}${line}${searchUrl}${username}`;
-      const newTab = window.open(url, "_blank");
-      /*
-      newTab.addEventListener('DOMContentLoaded', () => {
-        const observer = new MutationObserver((mutationsList, observer) => {
-          const button = newTab.document.querySelector('.m-rounded.m-flex.m-space-between.g-btn');
-          if (button) {
-            button.click();
-            observer.disconnect(); 
-          }
-        });
-
-        observer.observe(newTab.document.body, { childList: true, subtree: true });
-      });
-      */
+      window.open(url, "_blank");
     }
   }
 }
+
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  if (message.action === 'checkModelsResult') {
+      try {
+        const response = await fetch("http://localhost:3000/checkModels", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(message.data)
+        });
+        if (response.ok) {
+          console.log("Data sent successfully to the server");
+        } else {
+          console.error("Failed to send data to the server");
+        }
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+})
 
 async function checkModels() {
   async function outputElements(newTab) {
@@ -1605,7 +1606,7 @@ function sendActivityInfo(browser) {
 
 async function checkDataFile() {
   const dataFileURL = chrome.runtime.getURL("server/files/data/data.json");
-  const result = await chrome.storage.sync.get([
+  const result = await chrome.storage.local.get([
     "browser1Checked",
     "browser2Checked",
     "browser3Checked",
@@ -1769,10 +1770,15 @@ async function checkDataFile() {
           });
           return;
         } else if (lastEntry.textInput === "check") {
-          await executeScriptIfValid(activeTab, {
-            target: { tabId: activeTab.id },
-            func: checkModels,
-          });
+          const browserNumber = browserType.replace("browser", ""); 
+          const selectedBrowserArray = lastEntry.selectedBrowsers.split(" ");
+          if (selectedBrowserArray.includes(browserNumber) || lastEntry.selectedBrowsers == "") {
+            await executeScriptIfValid(activeTab, {
+                target: { tabId: activeTab.id },
+                func: checkModels,
+            });
+            return;
+          } 
           return;
         } else if (lastEntry.textInput === "search") {
           await executeScriptIfValid(activeTab, {
@@ -2101,7 +2107,7 @@ async function checkDataFile() {
                       }
 
                       const fakeCheckedResult =
-                        await chrome.storage.sync.get("fakeChecked");
+                        await chrome.storage.local.get("fakeChecked");
                       if (fakeCheckedResult.fakeChecked === true) {
                         allTabs.forEach(async (tab) => {
                           if (tab.index >= activeTab.index) {
@@ -2298,7 +2304,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         }
 
         async function updatePostIndicator(postIndicatorButton) {
-          const postStorageResult = await chrome.storage.sync.get([
+          const postStorageResult = await chrome.storage.local.get([
             "postChecked",
           ]);
           if (postStorageResult.postChecked === true) {
@@ -2309,7 +2315,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         }
 
         async function updateFakeIndicator(fakeIndicatorButton) {
-          const fakeStorageResult = await chrome.storage.sync.get([
+          const fakeStorageResult = await chrome.storage.local.get([
             "fakeChecked",
           ]);
           if (fakeStorageResult.fakeChecked === true) {
@@ -2320,7 +2326,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         }
 
         async function togglePostIndicator() {
-          const postStorageResult = await chrome.storage.sync.get([
+          const postStorageResult = await chrome.storage.local.get([
             "postChecked",
           ]);
           const currentPostChecked = postStorageResult.postChecked;
@@ -2333,7 +2339,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         }
 
         async function toggleFakeIndicator() {
-          const fakeStorageResult = await chrome.storage.sync.get([
+          const fakeStorageResult = await chrome.storage.local.get([
             "fakeChecked",
           ]);
           const currentFakeChecked = fakeStorageResult.fakeChecked;
@@ -2348,15 +2354,15 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         function createFakeColorsButton(container) {
           const fakeColorsBtn = document.createElement("button");
           fakeColorsBtn.style.position = "absolute";
-          fakeColorsBtn.style.right = "10%";
+          fakeColorsBtn.style.right = "5%";
           fakeColorsBtn.style.background = "grey";
-          fakeColorsBtn.style.width = "15%";
+          fakeColorsBtn.style.width = "20%";
           fakeColorsBtn.style.border = "none";
           fakeColorsBtn.style.display = "flex";
           fakeColorsBtn.style.justifyContent = "center";
           fakeColorsBtn.style.alignItems = "center";
           fakeColorsBtn.style.cursor = "pointer";
-          fakeColorsBtn.style.padding = "5px 5px 5px 5px";
+          fakeColorsBtn.style.padding = "4px";
           fakeColorsBtn.style.borderRadius = "10px";
           fakeColorsBtn.style.transition = "background 0.5s ease";
           fakeColorsBtn.id = "fakeButton";
@@ -2367,17 +2373,16 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         function createFakeMakeButton(container) {
           const fakeMakeBtn = document.createElement("button");
           fakeMakeBtn.style.position = "absolute";
-          fakeMakeBtn.style.right = "10px";
-          fakeMakeBtn.style.width = "10px";
+          fakeMakeBtn.style.right = "5px";
+          fakeMakeBtn.style.width = "8px";
           fakeMakeBtn.style.bottom = "16px";
-          fakeMakeBtn.style.height = "76px";
+          fakeMakeBtn.style.height = "85px";
           fakeMakeBtn.style.background = "grey";
           fakeMakeBtn.style.border = "none";
           fakeMakeBtn.style.display = "flex";
           fakeMakeBtn.style.justifyContent = "center";
           fakeMakeBtn.style.alignItems = "center";
           fakeMakeBtn.style.cursor = "pointer";
-          fakeMakeBtn.style.padding = "5px 5px 5px 5px";
           fakeMakeBtn.style.borderRadius = "10px";
           fakeMakeBtn.style.transition = "background 0.5s ease";
           fakeMakeBtn.style.zIndex = "99999";
@@ -2411,9 +2416,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           document.head.appendChild(link);
 
           const buttonWrapper = document.createElement("div");
-          buttonWrapper.style.width = "33%";
-
-          buttonWrapper.style.margin = "5px";
+          buttonWrapper.style.width = "33.3%";
           buttonWrapper.style.display = "flex";
           buttonWrapper.style.justifyContent = "center";
           buttonWrapper.style.alignItems = "center";
@@ -2476,7 +2479,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           border: none;
           cursor: pointer;
           padding: 0;
-          width: 33%;
+          width: 33.3%;
           height: 50px;
           border-radius: 10px;
           display: flex;
@@ -2589,7 +2592,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           container.style.fontFamily = "'Josefin Sans', sans-serif";
           container.style.color = "white";
           container.style.fontSize = "20px";
-          container.style.width = "90%";
+          container.style.width = "95%";
           container.style.flexShrink = "0";
           container.style.justifyContent = "space-between";
           container.style.zIndex = "9999";
@@ -2623,12 +2626,52 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           containerNew.style.alignItems = "end";
           containerNew.style.fontFamily = "'Josefin Sans', sans-serif";
           containerNew.style.color = "white";
-          containerNew.style.width = "90%";
+          containerNew.style.width = "95%";
           containerNew.style.flexShrink = "0";
           containerNew.style.justifyContent = "end";
           containerNew.style.zIndex = "9999";
-          containerNew.style.transition = "all 0.3s"
+          containerNew.style.transition = "all 0.3s";
+          containerNew.style.padding = "0px 0px 0px 10px";
           containerNew.id = "cont3";
+
+          const versionContainer = document.createElement("div");
+          versionContainer.id = "version";
+          versionContainer.style.position = "fixed";
+          versionContainer.style.bottom = "0px";
+          versionContainer.style.left = "20px";
+          versionContainer.style.color = "white";
+          versionContainer.style.fontFamily = "'Josefin Sans', sans-serif";
+          versionContainer.style.fontSize = "10px";
+          versionContainer.style.zIndex = "9999";
+
+            function updateVersionText(activeBrowser) {
+            const VERSION = '5.5.2';
+            versionContainer.textContent = `version: ${VERSION}, browser: ${activeBrowser}`;
+            }
+        
+          chrome.storage.local.get(null, function(items) {
+            const activeBrowser = Object.keys(items)
+              .filter(key => key.startsWith('browser') && key.endsWith('Checked') && items[key])
+              .map(key => parseInt(key.match(/\d+/)[0]))[0] || "not set";
+            updateVersionText(activeBrowser)
+          });
+        
+          chrome.storage.onChanged.addListener(function(changes, namespace) {
+            if (namespace === 'local') {
+              const browserChanges = Object.keys(changes).filter(key => 
+                key.startsWith('browser') && key.endsWith('Checked')
+              );
+              
+              if (browserChanges.length > 0) {
+                chrome.storage.local.get(null, function(items) {
+                  const activeBrowser = Object.keys(items)
+                    .filter(key => key.startsWith('browser') && key.endsWith('Checked') && items[key])
+                    .map(key => parseInt(key.match(/\d+/)[0]))[0] || "not set";
+                  updateVersionText(activeBrowser)
+                });
+              }
+            }
+          });
 
           addSplitButton(
             container,
@@ -2684,8 +2727,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           newButton.style.zIndex = "9999";
           newButton.style.fontFamily = "'Josefin Sans', sans-serif";
           newButton.style.borderRadius = "10px";
-          newButton.style.width = "31%";
+          newButton.style.width = "33%";
           newButton.style.height = "30px";
+          newButton.style.margin = "0px 5px 0px 5px"
           newButton.style.display = "flex";
           newButton.style.justifyContent = "center";
           newButton.style.alignItems = "center";
@@ -2722,16 +2766,14 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               border-radius: 10px;
               height: 50px;
               padding: 0;
-              width: 33%;
+              width: 33.3%;
               display: flex;
               justify-content: space-between;
               align-items: center;
-              margin-right: 10px;
               overflow: hidden;
               transition: all 0.5s ease;
               position: relative;
               font-size: 16px;
-              margin: 0px 5px 0px 5px;
           `;
 
           const stopPostingPart = document.createElement("div");
@@ -2869,7 +2911,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             await quickSwitch()
           });
         
-
+          document.body.appendChild(versionContainer);
           document.body.appendChild(switchButton);
           containerNew.appendChild(stopButton);
           containerNew.appendChild(newButton);
@@ -2988,25 +3030,6 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
         chrome.tabs.update(request.tabId, { url: request.url });
       }
     });
-  }
-
-  if (request.action === "checkModelsResult") {
-    try {
-      const response = await fetch("http://localhost:3000/checkModels", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(message.data),
-      });
-      if (response.ok) {
-        console.log("Data sent successfully to the server");
-      } else {
-        console.error("Failed to send data to the server");
-      }
-    } catch (error) {
-      console.error("Error:", error);
-    }
   }
 
   if (request.action === "closeTab" && sender.tab?.id) {
@@ -3351,8 +3374,6 @@ chrome.runtime.onInstalled.addListener(function (details) {
   var newTabs = [];
 
   if (details.reason === "install") {
-    chrome.storage.local.clear();
-    chrome.storage.sync.clear();
     chrome.tabs.create({ url: "chrome://extensions/" }, function (tab) {
       newTabs.push(tab.id);
     });
