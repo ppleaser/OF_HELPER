@@ -13,7 +13,6 @@ async function executeScriptIfValid(activeTab, details) {
 }
 
 let timerVisibility = true;
-let onlyFansOpenTabs = new Set();
 let closedTabIds = new Set();
 let closedTabsCount = 0;
 let lastCheckTime = 0;
@@ -44,7 +43,7 @@ function checkAndCloseTab(tabId, serializedIntervals) {
   }
 
   const pressBind = () => {
-    const intervalId = setInterval(() => {
+    const intervalId = setInterval(async () => {
       const selector = document.querySelector(
         '[at-attr="submit_post"]'
       );
@@ -64,7 +63,12 @@ function checkAndCloseTab(tabId, serializedIntervals) {
       }
 
       if (selector?.disabled === false) {
-        selector.click();
+        const { syncStop = false, singleStop = false } = await new Promise(resolve => {
+          chrome.storage.local.get(['syncStop', 'singleStop'], resolve);
+        });
+        if (!syncStop && !singleStop) {
+          selector.click();
+        }
         
         setTimeout(() => {
           const confirmButton = Array.from(
@@ -90,63 +94,60 @@ function checkAndCloseTab(tabId, serializedIntervals) {
 }
 
 function updateTabCounterOnActiveTab(isReset) {
-  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    if (tabs.length === 0) return;
-    const activeTab = tabs[0];
-    let onlyFansTabsCount = onlyFansOpenTabs.size;
-
-    chrome.scripting
-      .executeScript({
+  chrome.tabs.query({}, function (allTabs) { 
+    const onlyFansTabsCount = allTabs.filter(tab => 
+      tab.url.startsWith('https://onlyfans.com')
+    ).length;
+ 
+    chrome.tabs.query({ active: true, currentWindow: true }, function (activeTabs) {
+      if (activeTabs.length === 0) return;
+      const activeTab = activeTabs[0];
+ 
+      chrome.scripting.executeScript({
         target: { tabId: activeTab.id },
         func: (isVisible) => {
           const elements = [
-            document.getElementById("tabCounter"),
-            document.getElementById("cont1"),
-            document.getElementById("cont2"),
-            document.getElementById("cont3"),
-            document.getElementById("switch-button"),
-            document.getElementById("fakeMakeButton"),
-            document.getElementById("version"),
-          ];
-          elements.forEach((el) => {
+            "tabCounter", "cont1", "cont2", "cont3", 
+            "switch-button", "fakeMakeButton", "version"
+          ].map(id => document.getElementById(id));
+          
+          elements.forEach(el => {
             if (el) {
               el.style.opacity = isVisible ? "1" : "0";
               el.style.pointerEvents = isVisible ? "auto" : "none";
             }
           });
         },
-        args: [timerVisibility],
-      })
-      .catch(console.error);
-
-    let timeSinceLastClosed = "00:00";
-    let color = "rgb(45, 155, 55)";
-
-    if (isReset) {
-      lastClosedTime = new Date();
-      closedTabsCount = 0;
-    }
-
-    if (lastClosedTime) {
-      const now = new Date();
-      const diffMs = now - lastClosedTime;
-      const diffSecs = Math.floor(diffMs / 1000);
-      const minutes = String(Math.floor(diffSecs / 60)).padStart(2, "0");
-      const seconds = String(diffSecs % 60).padStart(2, "0");
-      timeSinceLastClosed = `${minutes}:${seconds}`;
-
-      if (diffSecs < 15) {
-        color = "rgb(45, 155, 55)";
-      } else if (diffSecs < 30) {
-        color = "yellow";
-      } else {
-        color = "rgb(221, 109, 85)";
-        checkTabs();
+        args: [timerVisibility]
+      }).catch(console.error);
+ 
+      let timeSinceLastClosed = "00:00";
+      let color = "rgb(45, 155, 55)";
+ 
+      if (isReset) {
+        lastClosedTime = new Date();
+        closedTabsCount = 0;
       }
-    }
-
-    chrome.scripting
-      .executeScript({
+ 
+      if (lastClosedTime) {
+        const now = new Date();
+        const diffMs = now - lastClosedTime;
+        const diffSecs = Math.floor(diffMs / 1000);
+        const minutes = String(Math.floor(diffSecs / 60)).padStart(2, "0");
+        const seconds = String(diffSecs % 60).padStart(2, "0");
+        timeSinceLastClosed = `${minutes}:${seconds}`;
+ 
+        if (diffSecs < 15) {
+          color = "rgb(45, 155, 55)";
+        } else if (diffSecs < 30) {
+          color = "yellow";
+        } else {
+          color = "rgb(221, 109, 85)";
+          checkTabs();
+        }
+      }
+ 
+      chrome.scripting.executeScript({
         target: { tabId: activeTab.id },
         func: (count, closedCount, time, color) => {
           const update = () => {
@@ -154,26 +155,29 @@ function updateTabCounterOnActiveTab(isReset) {
             if (!counter) {
               counter = document.createElement("div");
               counter.id = "tabCounter";
-              counter.style.position = "fixed";
-              counter.style.bottom = "60px";
-              counter.style.left = "15px";
-              counter.style.fontFamily = "'Josefin Sans', sans-serif";
-              counter.style.fontSize = "20px";
-              counter.style.padding = "5px";
-              counter.style.borderRadius = "5px";
-              counter.style.zIndex = "99999";
+              Object.assign(counter.style, {
+                position: "fixed",
+                bottom: "60px",
+                left: "15px",
+                fontFamily: "'Josefin Sans', sans-serif",
+                fontSize: "20px",
+                padding: "5px",
+                borderRadius: "5px",
+                zIndex: "99999"
+              });
               document.body.appendChild(counter);
             }
             counter.style.color = color;
             counter.textContent = `${count} / ${closedCount} / ${time}`;
           };
+          
           document.readyState === "loading"
             ? document.addEventListener("DOMContentLoaded", update)
             : update();
         },
-        args: [onlyFansTabsCount, closedTabsCount, timeSinceLastClosed, color],
-      })
-      .catch(console.error);
+        args: [onlyFansTabsCount, closedTabsCount, timeSinceLastClosed, color]
+      }).catch(console.error);
+    });
   });
 
   function checkTabs() {
@@ -264,6 +268,14 @@ async function toggleColors() {
     element.style.opacity = ".4";
     element.style.background = "rgba(138, 150, 163, .75)";
   });
+}
+
+async function stopOn() {
+  await chrome.storage.local.set({ syncStop: true });
+}
+
+async function stopOff() {
+  await chrome.storage.local.set({ syncStop: false });
 }
 
 async function instantPostOn() {
@@ -595,18 +607,8 @@ function clickOnNewPost() {
   }
 }
 
-function clearPhotoBindSingle() {
-  let elements = document.querySelectorAll(
-    ".b-dropzone__preview__delete.g-btn.m-rounded.m-reset-width.m-thumb-r-corner-pos.m-btn-remove.m-sm-icon-size.has-tooltip",
-  );
-  let divs = document.querySelectorAll(
-    "#make_post_form > div.b-make-post.m-with-free-options > div > div.b-make-post__main-wrapper > div.b-make-post__media-wrapper > div > div > div > div > div > div",
-  );
-  divs.forEach(function (div) {
-    if (elements.length > 0 && div.contains(elements[elements.length - 1])) {
-      elements[elements.length - 1].click();
-    }
-  });
+function stopPosting() {
+
 }
 
 function clearPhotoBindAll() {
@@ -1009,12 +1011,48 @@ async function addTextToPost(
         await handleImageUpload(pht);
       }
 
+      const formatText = (text) => {
+        if (!text) return '';
+      
+        let formattedText = text.split('\n').join('<br>');
+  
+        const patterns = [
+          {
+            regex: /\*{3}(.*?)\*{3}/g,
+            replacement: '<span class="m-editor-fc__blue-1"><em><strong>$1</strong></em></span>'
+          },
+          {
+            regex: /\*{2}(.*?)\*{2}/g,
+            replacement: '<strong>$1</strong>'
+          },
+          {
+            regex: /\*{1}(.*?)\*{1}/g,
+            replacement: '<em>$1</em>'
+          }
+        ];
+
+        patterns.forEach(({ regex, replacement }) => {
+          formattedText = formattedText.replace(regex, replacement);
+        });
+      
+        const segments = formattedText.split('<br>');
+        formattedText = segments
+          .map(segment => {
+            if (segment.trim().startsWith('<') && segment.trim().endsWith('>')) {
+              return segment;
+            }
+            return `<p>${segment}</p>`;
+          })
+          .join('');
+      
+        return formattedText;
+      };
+
       setTimeout(async () => {
         const textarea = document.querySelector(".tiptap.ProseMirror"); 
         if (textarea) {
           if (txt) {
-            const formattedText = text.split("\n").join("<br>");
-            textarea.innerHTML = `<p>${formattedText}</p>`;
+            textarea.innerHTML = formatText(text);
           }
 
           if (exp) {
@@ -1623,7 +1661,6 @@ async function checkDataFile() {
     "browser14Checked",
     "browser15Checked",
     "postChecked",
-    "fixChecked",
   ]);
 
   const browser1 = result.browser1Checked;
@@ -2169,14 +2206,25 @@ async function checkDataFile() {
       });
     }
 
-    if (lastEntry && lastEntry.id === "17" && browserType !== "") {
+    if (lastEntry && lastEntry.id === "117" && browserType !== "") {
       await sendTypeToServer(lastIndex, browserType);
 
       chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
         const activeTab = currentWindow.tabs.find((tab) => tab.active);
         await executeScriptIfValid(activeTab, {
           target: { tabId: activeTab.id },
-          func: clearPhotoBindSingle,
+          func: stopOn,
+        });
+      });
+    }
+
+    if (lastEntry && lastEntry.id === "118" && browserType !== "") {
+      await sendTypeToServer(lastIndex, browserType);
+      chrome.windows.getCurrent({ populate: true }, async (currentWindow) => {
+        const activeTab = currentWindow.tabs.find((tab) => tab.active);
+        await executeScriptIfValid(activeTab, {
+          target: { tabId: activeTab.id },
+          func: stopOff,
         });
       });
     }
@@ -2268,12 +2316,22 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           }
         }
 
-        async function clearRequestLeft() {
-          await makeRequest("http://localhost:3000/clearPhotoAll", 0);
+        async function singleStop() {
+          const result = await chrome.storage.local.get(['singleStop']);
+          const newState = !result.singleStop;
+          await chrome.storage.local.set({ singleStop: newState });
         }
 
-        async function clearRequestRight() {
-          await makeRequest("http://localhost:3000/clearPhotoSingle", 0);
+        async function syncStopRequestOn() {
+          await makeRequest("http://localhost:3000/syncStop-on");
+        }
+
+        async function syncStopRequestOff() {
+          await makeRequest("http://localhost:3000/syncStop-off");
+        }
+
+        async function clearRequest() {
+          await makeRequest("http://localhost:3000/clearPhotoAll", 0);
         }
 
         async function bindRequest() {
@@ -2354,9 +2412,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         function createFakeColorsButton(container) {
           const fakeColorsBtn = document.createElement("button");
           fakeColorsBtn.style.position = "absolute";
-          fakeColorsBtn.style.right = "5%";
+          fakeColorsBtn.style.right = "2.5%";
           fakeColorsBtn.style.background = "grey";
-          fakeColorsBtn.style.width = "20%";
+          fakeColorsBtn.style.width = "25%";
           fakeColorsBtn.style.border = "none";
           fakeColorsBtn.style.display = "flex";
           fakeColorsBtn.style.justifyContent = "center";
@@ -2373,7 +2431,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         function createFakeMakeButton(container) {
           const fakeMakeBtn = document.createElement("button");
           fakeMakeBtn.style.position = "absolute";
-          fakeMakeBtn.style.right = "5px";
+          fakeMakeBtn.style.right = "3px";
           fakeMakeBtn.style.width = "8px";
           fakeMakeBtn.style.bottom = "16px";
           fakeMakeBtn.style.height = "85px";
@@ -2394,8 +2452,8 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         function createIndicatorButton(container, color = "#DD6D55") {
           const indicatorButton = document.createElement("button");
           indicatorButton.style.background = color;
-          indicatorButton.style.width = "20%";
-          indicatorButton.style.padding = "5px 0px 5px 0px";
+          indicatorButton.style.width = "25%";
+          indicatorButton.style.padding = "4px";
           indicatorButton.style.border = "none";
           indicatorButton.style.cursor = "pointer";
           indicatorButton.style.borderRadius = "10px";
@@ -2408,59 +2466,6 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           return indicatorButton;
         }
 
-        function createButton(container, text, callback, color = "", id = "") {
-          let link = document.createElement("link");
-          link.href =
-            "https://fonts.googleapis.com/css2?family=Josefin+Sans&display=swap";
-          link.rel = "stylesheet";
-          document.head.appendChild(link);
-
-          const buttonWrapper = document.createElement("div");
-          buttonWrapper.style.width = "33.3%";
-          buttonWrapper.style.display = "flex";
-          buttonWrapper.style.justifyContent = "center";
-          buttonWrapper.style.alignItems = "center";
-
-          const button = document.createElement("button");
-          button.id = id;
-          button.style.background = color;
-          button.style.color = "white";
-          button.style.padding = "10px 0px 5px 0px";
-          button.style.border = "none";
-          button.style.cursor = "pointer";
-          button.style.borderRadius = "10px";
-          button.style.width = "100%";
-          button.style.display = "flex";
-          button.style.justifyContent = "center";
-          button.style.alignItems = "center";
-          button.style.transition = "background 0.5s ease";
-          button.style.fontWeight = "bold";
-          button.style.fontSize = "16px";
-          button.style.height = "50px";
-          button.onmouseover = function () {
-            this.style.background = "#6c757d";
-            this.style.transition = "all 0.5s ease";
-          };
-
-          button.onmouseout = function () {
-            this.style.background = color;
-            this.style.transition = "all 0.5s ease";
-          };
-          const buttonText = document.createElement("span");
-          buttonText.textContent = text;
-          buttonText.style.transition = "all 0.5s ease";
-
-          button.appendChild(buttonText);
-          buttonWrapper.appendChild(button);
-          container.appendChild(buttonWrapper);
-
-          button.addEventListener("click", async () => {
-            animateButton(button, buttonText, callback);
-          });
-
-          return { button, buttonText };
-        }
-
         function addSplitButton(
           container,
           textLeft,
@@ -2468,57 +2473,107 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           callbackLeft,
           callbackRight,
           id,
+          splitText,
+          margin = "5px 2px 5px 2px"
         ) {
           const button = document.createElement("button");
           button.id = id;
+          
+          const isStopButton = id === "split-button0";
+          let leftPart, rightPart;
+          
+          function updateStopButtonState(singleStopState, syncStopState) {
+            const leftText = singleStopState ? "single resume" : "single stop";
+            const rightText = syncStopState ? "sync resume" : "sync stop";
+            
+            const leftColor = singleStopState ? "rgb(120, 90, 90)" : "#5a6268";
+            const rightColor = syncStopState ? "rgb(140, 110, 110)" : "#6c757d";
+        
+            button.style.background = `linear-gradient(to right, ${leftColor} 50%, ${rightColor} 50%)`;
+            button.style.backgroundSize = "205% 100%";
+            button.style.backgroundPosition = "center";
+            
+            updateButtonTexts(leftText, rightText);
+          }
+        
+          function updateButtonTexts(newLeftText, newRightText) {
+            if (splitText) {
+              leftPart.innerHTML = '';
+              rightPart.innerHTML = '';
+        
+              newLeftText.split(" ").forEach(word => {
+                const wordDiv = document.createElement("div");
+                wordDiv.style.cssText = `
+                  line-height: 1.2;
+                  text-align: center;
+                `;
+                wordDiv.textContent = word;
+                leftPart.appendChild(wordDiv);
+              });
+              
+              newRightText.split(" ").forEach(word => {
+                const wordDiv = document.createElement("div");
+                wordDiv.style.cssText = `
+                  line-height: 1.2;
+                  text-align: center;
+                `;
+                wordDiv.textContent = word;
+                rightPart.appendChild(wordDiv);
+              });
+            } else {
+              leftPart.textContent = newLeftText;
+              rightPart.textContent = newRightText;
+            }
+          }
+        
           button.style.cssText = `
-          background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
-          background-size: 205% 100%;
-          background-position: center;
-          color: white;
-          border: none;
-          cursor: pointer;
-          padding: 0;
-          width: 33.3%;
-          height: 50px;
-          border-radius: 10px;
-          display: flex;
-          justify-content: space-between;
-          position: relative;
-          overflow: hidden;
-          transition: all 0.5s ease;
-          font-family: 'Josefin Sans', sans-serif;
-          margin: 5px;
-          font-size: 14px;
-          align-items: center;
-      `;
-
-          const leftPart = createButtonPart(textLeft);
-          const rightPart = createButtonPart(textRight);
-
+            background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
+            background-size: 205% 100%;
+            background-position: center;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            width: 33.3%;
+            height: 50px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            font-family: 'Josefin Sans', sans-serif;
+            margin: ${margin};
+            font-size: 14px;
+            align-items: center;
+            transition: all 0.5s ease, transform 0.2s ease;
+          `;
+        
+          leftPart = createButtonPart(textLeft, splitText);
+          rightPart = createButtonPart(textRight, splitText);
+        
           const divider = document.createElement("div");
           divider.style.cssText = `
-          width: 2px;
-          height: 60%;
-          background: rgba(255, 255, 255, 0.3);
-          position: absolute;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 2;
-          transition: opacity 0.5s ease;
-      `;
-
+            width: 2px;
+            height: 60%;
+            background: rgba(255, 255, 255, 0.3);
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            transition: opacity 0.5s ease;
+          `;
+        
           button.appendChild(leftPart);
           button.appendChild(rightPart);
           button.appendChild(divider);
-
+        
           let animationTimeout;
-
+        
           const handleHover = (side) => {
             clearTimeout(animationTimeout);
             button.style.backgroundPosition = side;
             divider.style.opacity = "0";
-
+        
             if (side === "left") {
               leftPart.style.opacity = "1";
               rightPart.style.opacity = "0";
@@ -2527,126 +2582,164 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               rightPart.style.opacity = "1";
             }
           };
-
+        
           const resetState = () => {
             button.style.backgroundPosition = "center";
             leftPart.style.opacity = "1";
             rightPart.style.opacity = "1";
             divider.style.opacity = "1";
           };
-
+        
           leftPart.addEventListener("mouseover", () => handleHover("left"));
           leftPart.addEventListener("mouseout", () => {
             animationTimeout = setTimeout(resetState, 100);
           });
-
+        
           rightPart.addEventListener("mouseover", () => handleHover("right"));
           rightPart.addEventListener("mouseout", () => {
             animationTimeout = setTimeout(resetState, 100);
           });
-
+        
           button.addEventListener("click", async (event) => {
             const rect = button.getBoundingClientRect();
             const clickX = event.clientX - rect.left;
             button.disabled = true;
-
+        
             if (clickX <= rect.width / 2) {
               await animateButton(button, leftPart, callbackLeft);
             } else {
               await animateButton(button, rightPart, callbackRight);
             }
-
+        
             button.disabled = false;
           });
-
+        
+          if (isStopButton) {
+            chrome.storage.local.get(['singleStop', 'syncStop'], function(result) {
+              updateStopButtonState(result.singleStop, result.syncStop);
+            });
+        
+            chrome.storage.onChanged.addListener(function(changes, namespace) {
+              if (namespace === 'local' && (changes.singleStop || changes.syncStop)) {
+                chrome.storage.local.get(['singleStop', 'syncStop'], function(result) {
+                  updateStopButtonState(result.singleStop, result.syncStop);
+                });
+              }
+            });
+          }
+        
           container.appendChild(button);
           return { button };
         }
 
-        function createButtonPart(text) {
+        function createButtonPart(text, splitText = false) {
           const part = document.createElement("div");
           part.style.cssText = `
-          flex: 1;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0 4px;
-          transition: all 0.5s ease;
-          z-index: 1;
-          opacity: 1;
-        `;
-          part.textContent = text;
+            flex: 1;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            transition: all 0.5s ease;
+            z-index: 1;
+            opacity: 1;
+          `;
+        
+          if (splitText) {
+            part.style.flexDirection = 'column';
+            const words = text.split(" ");
+            words.forEach(word => {
+              const wordDiv = document.createElement("div");
+              wordDiv.style.cssText = `
+                line-height: 1.2;
+                text-align: center;
+              `;
+              wordDiv.textContent = word;
+              part.appendChild(wordDiv);
+            });
+          } else {
+            part.textContent = text;
+          }
+        
           return part;
         }
 
         if (!window.buttonsAdded) {
           const container = document.createElement("div");
-          container.style.position = "fixed";
-          container.style.bottom = "10px";
-          container.style.left = "50%";
-          container.style.transform = "translateX(-50%)";
-          container.style.display = "flex";
-          container.style.flexDirection = "row";
-          container.style.alignItems = "center";
-          container.style.fontFamily = "'Josefin Sans', sans-serif";
-          container.style.color = "white";
-          container.style.fontSize = "20px";
-          container.style.width = "95%";
-          container.style.flexShrink = "0";
-          container.style.justifyContent = "space-between";
-          container.style.zIndex = "9999";
-          container.style.transition = "all 0.3s"
+          Object.assign(container.style, {
+            position: "fixed",
+            bottom: "10px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            fontFamily: "'Josefin Sans', sans-serif",
+            color: "white",
+            fontSize: "20px",
+            width: "95%",
+            flexShrink: "0",
+            justifyContent: "space-between",
+            zIndex: "9999",
+            transition: "all 0.3s"
+          });
           container.id = "cont1";
-
+        
           const container2 = document.createElement("div");
-          container2.style.position = "fixed";
-          container2.style.bottom = "2px";
-          container2.style.left = "50%";
-          container2.style.transform = "translateX(-50%)";
-          container2.style.display = "flex";
-          container2.style.flexDirection = "row";
-          container2.style.alignItems = "center";
-          container2.style.fontFamily = "'Josefin Sans', sans-serif";
-          container2.style.color = "white";
-          container2.style.width = "90%";
-          container2.style.flexShrink = "0";
-          container2.style.justifyContent = "center";
-          container2.style.zIndex = "9999";
-          container2.style.transition = "all 0.3s"
+          Object.assign(container2.style, {
+            position: "fixed",
+            bottom: "2px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            fontFamily: "'Josefin Sans', sans-serif",
+            color: "white",
+            width: "90%",
+            flexShrink: "0",
+            justifyContent: "center",
+            zIndex: "9999",
+            transition: "all 0.3s"
+          });
           container2.id = "cont2";
-
+        
           const containerNew = document.createElement("div");
-          containerNew.style.position = "fixed";
-          containerNew.style.bottom = "72px";
-          containerNew.style.left = "50%";
-          containerNew.style.transform = "translateX(-50%)";
-          containerNew.style.display = "flex";
-          containerNew.style.flexDirection = "row";
-          containerNew.style.alignItems = "end";
-          containerNew.style.fontFamily = "'Josefin Sans', sans-serif";
-          containerNew.style.color = "white";
-          containerNew.style.width = "95%";
-          containerNew.style.flexShrink = "0";
-          containerNew.style.justifyContent = "end";
-          containerNew.style.zIndex = "9999";
-          containerNew.style.transition = "all 0.3s";
-          containerNew.style.padding = "0px 0px 0px 10px";
+          Object.assign(containerNew.style, {
+            position: "fixed",
+            bottom: "70px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "end",
+            fontFamily: "'Josefin Sans', sans-serif",
+            color: "white",
+            width: "95%",
+            flexShrink: "0",
+            justifyContent: "end",
+            zIndex: "9999",
+            transition: "all 0.3s",
+            padding: "0px 0px 0px 10px"
+          });
           containerNew.id = "cont3";
-
+        
           const versionContainer = document.createElement("div");
           versionContainer.id = "version";
-          versionContainer.style.position = "fixed";
-          versionContainer.style.bottom = "0px";
-          versionContainer.style.left = "20px";
-          versionContainer.style.color = "white";
-          versionContainer.style.fontFamily = "'Josefin Sans', sans-serif";
-          versionContainer.style.fontSize = "10px";
-          versionContainer.style.zIndex = "9999";
+          Object.assign(versionContainer.style, {
+            position: "fixed",
+            bottom: "0px",
+            left: "20px",
+            color: "white",
+            fontFamily: "'Josefin Sans', sans-serif",
+            fontSize: "10px",
+            zIndex: "9999"
+          });
 
             function updateVersionText(activeBrowser) {
-            const VERSION = '5.5.2';
-            versionContainer.textContent = `version: ${VERSION}, browser: ${activeBrowser}`;
+            const VERSION = '5.5.3';
+            versionContainer.textContent = `version: ${VERSION} | browser: ${activeBrowser}`;
             }
         
           chrome.storage.local.get(null, function(items) {
@@ -2673,32 +2766,85 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             }
           });
 
+          let link = document.createElement("link");
+          link.href =
+            "https://fonts.googleapis.com/css2?family=Josefin+Sans&display=swap";
+          link.rel = "stylesheet";
+          document.head.appendChild(link);
+
+          async function toggleSyncStop() {
+            const result = await new Promise((resolve) => {
+              chrome.storage.local.get(['syncStop'], resolve);
+            });
+            const currentState = result.syncStop;
+            if (currentState) {
+              await syncStopRequestOff();
+            } else {
+              await syncStopRequestOn();
+            }
+          }
+
           addSplitButton(
             container,
-            "Clear all photos",
-            "Clear 1 photo",
-            clearRequestLeft,
-            clearRequestRight,
-            "split-button1",
+            "single stop",
+            "sync stop",
+            async () => {
+              await singleStop();
+            },
+            async () => {
+              await toggleSyncStop();
+            },
+            "split-button0",
+            true
           );
+
           document.body.appendChild(container);
           document.body.appendChild(container2);
 
-          createButton(
-            container,
-            "Add Media",
-            pasteRequest,
-            "#5a6268",
-            "yen-add-photo",
-          );
           addSplitButton(
             container,
-            "Next tab & post",
-            "Post",
-            bindFixRequest,
-            bindRequest,
-            "split-button2",
+            "clear media",
+            "add media",
+            async () => {
+              await clearRequest();
+            },
+            async () => {
+              await pasteRequest();
+            },
+            "split-button1",
+            true
           );
+
+          addSplitButton(
+            container,
+            "next tab & post",
+            "post",
+            async () => {
+              await bindFixRequest();
+            },
+            async () => {
+              await bindRequest();
+            },
+            "split-button2",
+            false
+          );
+          
+
+          addSplitButton(
+            containerNew,
+            "stop posting",
+            "stop auto",
+            async () => {
+              await stopRequest();
+            },
+            async () => {
+              chrome.storage.local.set({ isStop: true });
+            },
+            "stop-button",
+            true, 
+            "0px"
+          );
+
           let postIndicatorButton = createIndicatorButton(container2);
           let fakeColors = createFakeColorsButton(container2);
           let fakeMakeButton = createFakeMakeButton(document.body);
@@ -2720,26 +2866,31 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
 
           const newButton = document.createElement("button");
           newButton.id = "autopost-button";
-          newButton.style.backgroundColor = "rgb(221, 109, 85)";
-          newButton.style.color = "white";
-          newButton.style.border = "none";
-          newButton.style.cursor = "pointer";
-          newButton.style.zIndex = "9999";
-          newButton.style.fontFamily = "'Josefin Sans', sans-serif";
-          newButton.style.borderRadius = "10px";
-          newButton.style.width = "33%";
-          newButton.style.height = "30px";
-          newButton.style.margin = "0px 5px 0px 5px"
-          newButton.style.display = "flex";
-          newButton.style.justifyContent = "center";
-          newButton.style.alignItems = "center";
+          Object.assign(newButton.style, {
+           backgroundColor: "rgb(221, 109, 85)",
+           color: "white",
+           border: "none",
+           cursor: "pointer",
+           zIndex: "9999",
+           fontFamily: "'Josefin Sans', sans-serif",
+           borderRadius: "10px",
+           width: "33%",
+           height: "30px",
+           margin: "0px 4px 0px 4px",
+           display: "flex",
+           justifyContent: "center",
+           alignItems: "center"
+          });
+          
           const newButtonText = document.createElement("span");
           newButtonText.textContent = "auto";
-          newButtonText.style.transition = "all 0.5s ease";
+          Object.assign(newButtonText.style, {
+           transition: "all 0.5s ease"
+          });
+          
           newButton.appendChild(newButtonText);
-          newButton.style.margin = "0px 5px 0px 5px";
           newButton.addEventListener("click", function () {
-            chrome.runtime.sendMessage({ action: "clickAndMove" });
+           chrome.runtime.sendMessage({ action: "clickAndMove" });
           });
 
           newButton.onmouseover = function () {
@@ -2752,142 +2903,24 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             this.style.transition = "all 0.5s ease";
           };
 
-          const stopButton = document.createElement("button");
-          stopButton.id = "stop-button";
-          stopButton.style.cssText = `
-              background: linear-gradient(to right, #5a6268 50%, #6c757d 50%);
-              background-size: 200% 100%;
-              background-position: center;
-              color: white;
-              border: none;
-              cursor: pointer;
-              z-index: 9999;
-              font-family: 'Josefin Sans', sans-serif;
-              border-radius: 10px;
-              height: 50px;
-              padding: 0;
-              width: 33.3%;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              overflow: hidden;
-              transition: all 0.5s ease;
-              position: relative;
-              font-size: 16px;
-          `;
-
-          const stopPostingPart = document.createElement("div");
-          stopPostingPart.style.cssText = `
-              flex: 1;
-              height: 100%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              padding: 0 8px;
-              transition: all 0.5s ease;
-              z-index: 1;
-              opacity: 1;
-          `;
-
-          const stopAutoPart = document.createElement("div");
-          stopAutoPart.style.cssText = `
-              flex: 1;
-              height: 100%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              padding: 0 8px;
-              transition: all 0.5s ease;
-              z-index: 1;
-              opacity: 1;
-          `;
-
-          stopPostingPart.textContent = "stop posting";
-          stopAutoPart.textContent = "stop auto";
-
-          stopButton.appendChild(stopPostingPart);
-          stopButton.appendChild(stopAutoPart);
-
-          const divider = document.createElement("div");
-          divider.style.cssText = `
-              width: 1px;
-              height: 60%;
-              rgba(255, 255, 255, 0.3);
-              position: absolute;
-              left: 50%;
-              transform: translateX(-50%);
-              z-index: 2;
-              transition: opacity 0.5s ease;
-          `;
-          stopButton.appendChild(divider);
-
-          let animationTimeout;
-
-          const handleHover = (part, targetPosition) => {
-            clearTimeout(animationTimeout);
-            stopButton.style.backgroundPosition = targetPosition;
-
-            if (part === "left") {
-              stopPostingPart.style.opacity = "1";
-              stopAutoPart.style.opacity = "0";
-              divider.style.opacity = "0";
-            } else {
-              stopPostingPart.style.opacity = "0";
-              stopAutoPart.style.opacity = "1";
-              divider.style.opacity = "0";
-            }
-          };
-
-          const resetState = () => {
-            stopButton.style.backgroundPosition = "center";
-            stopPostingPart.style.opacity = "1";
-            stopAutoPart.style.opacity = "1";
-            divider.style.opacity = "1";
-          };
-
-          stopPostingPart.addEventListener("mouseover", () =>
-            handleHover("left", "left"),
-          );
-          stopPostingPart.addEventListener("mouseout", () => {
-            animationTimeout = setTimeout(resetState, 100);
-          });
-
-          stopAutoPart.addEventListener("mouseover", () =>
-            handleHover("right", "right"),
-          );
-          stopAutoPart.addEventListener("mouseout", () => {
-            animationTimeout = setTimeout(resetState, 100);
-          });
-
-          stopPostingPart.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            await animateButton(stopButton, stopPostingPart, stopRequest);
-          });
-
-          stopAutoPart.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            chrome.storage.local.set({ isStop: true });
-            await animateButton(stopButton, stopAutoPart);
-          });
 
           const switchButton = document.createElement("button");
-          switchButton.style.cssText = `
-              position: fixed;
-              background-color:  rgb(90, 98, 104);
-              border: none;
-              border-radius: 10px;
-              padding: 4px;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              z-index: 9999;
-              bottom: 105px;
-              right: 29%;
-              cursor: pointer;
-              z-index: 99999;
-              transition: all 0.5s;
-              outline: none;
-          `;
+          Object.assign(switchButton.style, {
+           position: "fixed",
+           backgroundColor: "rgb(90, 98, 104)",
+           border: "none",
+           borderRadius: "10px",
+           padding: "4px",
+           display: "flex",
+           justifyContent: "center",
+           alignItems: "center",
+           bottom: "105px",
+           right: "29%",
+           cursor: "pointer",
+           zIndex: "99999",
+           transition: "all 0.5s",
+           outline: "none"
+          });
           switchButton.id = "switch-button";
 
           switchButton.innerHTML = `
@@ -2913,7 +2946,6 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         
           document.body.appendChild(versionContainer);
           document.body.appendChild(switchButton);
-          containerNew.appendChild(stopButton);
           containerNew.appendChild(newButton);
           document.body.appendChild(containerNew);
           window.buttonsAdded = true;
@@ -3043,13 +3075,18 @@ async function rememberId(tab, prevTab) {
   chrome.storage.local.set({ deleteTabId: prevTab.id });
 }
 
-function pressBind() {
+async function pressBind() {
   let selector =
     document.querySelector('[at-attr="submit_post"]') ||
     document.querySelector(
       "#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button",
     );
   if (selector) {
+    const { syncStop = false, singleStop = false } = await new Promise(resolve => {
+      chrome.storage.local.get(['syncStop', 'singleStop'], resolve);
+    });
+    if (!syncStop && !singleStop) {
+
     selector.click();
     setTimeout(function () {
       let buttons = document.querySelectorAll(
@@ -3061,17 +3098,24 @@ function pressBind() {
         }
       });
     }, 500);
+    }
   }
 }
 
 async function pressBindFix(tab) {
-  function pressBind() {
+
+  async function pressBind() {
     let selector =
       document.querySelector('[at-attr="submit_post"]') ||
       document.querySelector(
         "#content > div.l-wrapper > div > div > div > div > div.g-page__header.m-real-sticky.js-sticky-header.m-nowrap > div > button",
       );
     if (selector) {
+      const { syncStop = false, singleStop = false } = await new Promise(resolve => {
+        chrome.storage.local.get(['syncStop', 'singleStop'], resolve);
+      });
+      if (!syncStop && !singleStop) {
+  
       selector.click();
       setTimeout(function () {
         let buttons = document.querySelectorAll(
@@ -3083,9 +3127,10 @@ async function pressBindFix(tab) {
           }
         });
       }, 500);
+      }
     }
   }
-
+  
   var tabId = tab.id;
 
   function delay(time) {
@@ -3326,9 +3371,9 @@ async function pressBindFix(tab) {
         }
         chrome.runtime.sendMessage(
           { action: "checkTab", tabId: tab.id },
-          function (response) {
+          async function (response) {
             if (response.shouldClick) {
-              pressBind();
+              await pressBind();
             }
           },
         );
@@ -3429,68 +3474,82 @@ function createNotification(tabId, message) {
         var notification = document.createElement("div");
         var closeButton = document.createElement("span");
         closeButton.innerText = "×";
-        closeButton.style.position = "absolute";
-        closeButton.style.right = "5px";
-        closeButton.style.top = "5px";
-        closeButton.style.cursor = "pointer";
-        closeButton.style.fontSize = "20px";
-
-        closeButton.onmouseover = function () {
+        
+        Object.assign(closeButton.style, {
+          position: "absolute",
+          right: "5px", 
+          top: "5px",
+          cursor: "pointer",
+          fontSize: "20px"
+        });
+ 
+        closeButton.onmouseover = function() {
           closeButton.style.color = "red";
         };
-
-        closeButton.onmouseout = function () {
+ 
+        closeButton.onmouseout = function() {
           closeButton.style.color = "";
         };
-
-        closeButton.onclick = function (event) {
+ 
+        closeButton.onclick = function(event) {
           event.stopPropagation();
           document.body.removeChild(notification);
         };
+ 
         notification.appendChild(closeButton);
+ 
         var messageElement = document.createElement("span");
         messageElement.innerText = arguments[0];
         notification.appendChild(messageElement);
-        notification.style.position = "fixed";
-        notification.style.bottom = "90px";
-        notification.style.left = "20px";
-        notification.style.maxWidth = "200px";
-        notification.style.padding = "10px 25px 10px 25px";
-        notification.style.backgroundColor = "yellow";
-        notification.style.color = "black";
-        notification.style.textAlign = "center";
-        notification.style.zIndex = "10000";
-        notification.style.borderRadius = "10px";
-        notification.style.fontWeight = "bold";
-        notification.style.cursor = "pointer";
-        notification.style.opacity = "0";
-        notification.style.transition = "opacity 0.5s ease-in-out";
-        notification.onclick = function () {
+ 
+        Object.assign(notification.style, {
+          position: "fixed",
+          bottom: "90px",
+          left: "20px",
+          maxWidth: "200px",
+          padding: "10px 25px 10px 25px",
+          backgroundColor: "yellow",
+          color: "black",
+          textAlign: "center",
+          zIndex: "10000",
+          borderRadius: "10px",
+          fontWeight: "bold",
+          cursor: "pointer",
+          opacity: "0",
+          transition: "opacity 0.5s ease-in-out"
+        });
+ 
+        notification.onclick = function() {
           chrome.runtime.sendMessage({
             action: "switchTabClick",
-            tabId: tabId,
+            tabId: tabId
           });
           document.body.removeChild(notification);
         };
+ 
         document.body.appendChild(notification);
-        setTimeout(function () {
+        
+        setTimeout(function() {
           notification.style.opacity = "1";
         }, 100);
-        var timeoutId = setTimeout(function () {
+ 
+        var timeoutId = setTimeout(function() {
           notification.style.opacity = "0";
-          setTimeout(function () {
+          setTimeout(function() {
             if (document.body.contains(notification)) {
               document.body.removeChild(notification);
             }
           }, 500);
         }, 5000);
-        notification.onmouseover = function () {
+ 
+        notification.onmouseover = function() {
           clearTimeout(timeoutId);
         };
-        notification.onmouseout = function () {
-          timeoutId = setTimeout(function () {
+ 
+        notification.onmouseout = function() {
+          timeoutId = setTimeout(function() {
             notification.style.opacity = "0";
-            setTimeout(function () {
+            setTimeout(function() {
               if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
               }
@@ -3498,10 +3557,10 @@ function createNotification(tabId, message) {
           }, 1000);
         };
       },
-      args: [message, tabId],
+      args: [message, tabId]
     });
   });
-}
+ }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "loading") {
@@ -3563,7 +3622,6 @@ chrome.webNavigation.onCompleted.addListener(
 
 chrome.tabs.onCreated.addListener(function (tab) {
   if (tab.url && tab.url.startsWith("https://onlyfans.com/")) {
-    onlyFansOpenTabs.add(tab.id); 
     updateTabCounterOnActiveTab(false);
   }
 });
@@ -3574,22 +3632,17 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
     tab.url.startsWith("https://onlyfans.com/") &&
     changeInfo.status === "complete"
   ) {
-    onlyFansOpenTabs.add(tabId);
     updateTabCounterOnActiveTab(false);
   }
 });
 
 chrome.tabs.onRemoved.addListener(function (tabId) {
-  if (onlyFansOpenTabs.has(tabId) && closedTabIds.has(tabId)) {
+  if (closedTabIds.has(tabId)) {
     closedTabIds.delete(tabId);
-    onlyFansOpenTabs.delete(tabId); 
     closedTabsCount++;
     lastClosedTime = new Date();
-    updateTabCounterOnActiveTab(false);
-  } else if (onlyFansOpenTabs.has(tabId)) {
-    onlyFansOpenTabs.delete(tabId);
-    updateTabCounterOnActiveTab(false);
   }
+  updateTabCounterOnActiveTab(false);
 });
 
 setInterval(() => updateTabCounterOnActiveTab(false), 1000);
