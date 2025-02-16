@@ -157,11 +157,10 @@ function updateTabCounterOnActiveTab(isReset) {
               counter.id = "tabCounter";
               Object.assign(counter.style, {
                 position: "fixed",
-                bottom: "60px",
+                bottom: "65px",
                 left: "15px",
                 fontFamily: "'Josefin Sans', sans-serif",
                 fontSize: "20px",
-                padding: "5px",
                 borderRadius: "5px",
                 zIndex: "99999"
               });
@@ -2474,7 +2473,8 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           callbackRight,
           id,
           splitText,
-          margin = "5px 2px 5px 2px"
+          margin, 
+          width
         ) {
           const button = document.createElement("button");
           button.id = id;
@@ -2534,7 +2534,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             border: none;
             cursor: pointer;
             padding: 0;
-            width: 33.3%;
+            width: ${width};
             height: 50px;
             border-radius: 10px;
             display: flex;
@@ -2668,21 +2668,21 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
         if (!window.buttonsAdded) {
           const container = document.createElement("div");
           Object.assign(container.style, {
-            position: "fixed",
-            bottom: "10px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            fontFamily: "'Josefin Sans', sans-serif",
-            color: "white",
-            fontSize: "20px",
-            width: "95%",
-            flexShrink: "0",
-            justifyContent: "space-between",
-            zIndex: "9999",
-            transition: "all 0.3s"
+              position: "fixed",
+              bottom: "10px",
+              left: "15px", 
+              right: "15px", 
+              transform: "none", 
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              fontFamily: "'Josefin Sans', sans-serif",
+              color: "white",
+              fontSize: "20px",
+              flexShrink: "0",
+              justifyContent: "space-between",
+              zIndex: "9999",
+              transition: "all 0.3s"
           });
           container.id = "cont1";
         
@@ -2690,14 +2690,13 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           Object.assign(container2.style, {
             position: "fixed",
             bottom: "2px",
-            left: "50%",
-            transform: "translateX(-50%)",
+            left: "15px", 
+            right: "15px", 
             display: "flex",
             flexDirection: "row",
             alignItems: "center",
             fontFamily: "'Josefin Sans', sans-serif",
             color: "white",
-            width: "90%",
             flexShrink: "0",
             justifyContent: "center",
             zIndex: "9999",
@@ -2709,19 +2708,17 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           Object.assign(containerNew.style, {
             position: "fixed",
             bottom: "70px",
-            left: "50%",
-            transform: "translateX(-50%)",
+            left: "15px", 
+            right: "15px", 
             display: "flex",
             flexDirection: "row",
             alignItems: "end",
             fontFamily: "'Josefin Sans', sans-serif",
             color: "white",
-            width: "95%",
             flexShrink: "0",
             justifyContent: "end",
             zIndex: "9999",
             transition: "all 0.3s",
-            padding: "0px 0px 0px 10px"
           });
           containerNew.id = "cont3";
         
@@ -2730,7 +2727,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           Object.assign(versionContainer.style, {
             position: "fixed",
             bottom: "0px",
-            left: "20px",
+            left: "15px",
             color: "white",
             fontFamily: "'Josefin Sans', sans-serif",
             fontSize: "10px",
@@ -2795,7 +2792,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               await toggleSyncStop();
             },
             "split-button0",
-            true
+            true,
+            "5px 2px 5px 0px",
+            "33.33%"
           );
 
           document.body.appendChild(container);
@@ -2812,7 +2811,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               await pasteRequest();
             },
             "split-button1",
-            true
+            true,
+            "5px 2px 5px 2px",
+            "33.33%"
           );
 
           addSplitButton(
@@ -2826,7 +2827,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
               await bindRequest();
             },
             "split-button2",
-            false
+            false,
+            "5px 0px 5px 2px",
+            "33.33%"
           );
           
 
@@ -2842,7 +2845,8 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
             },
             "stop-button",
             true, 
-            "0px"
+            "0px 2px 0px 2px",
+            "calc(((100% - 8px) / 3) + 0.01px)",
           );
 
           let postIndicatorButton = createIndicatorButton(container2);
@@ -2874,9 +2878,9 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
            zIndex: "9999",
            fontFamily: "'Josefin Sans', sans-serif",
            borderRadius: "10px",
-           width: "33%",
+           width: "calc((100% - 8px) / 3)",
            height: "30px",
-           margin: "0px 4px 0px 4px",
+           margin: "0px 0px 0px 2px",
            display: "flex",
            justifyContent: "center",
            alignItems: "center"
@@ -2885,7 +2889,7 @@ async function setBind(tab, DELAY_BEFORE_OPENING_NEW_TAB, DELAY_GREEN_BUTTON) {
           const newButtonText = document.createElement("span");
           newButtonText.textContent = "auto";
           Object.assign(newButtonText.style, {
-           transition: "all 0.5s ease"
+           transition: "all 0.5s ease",
           });
           
           newButton.appendChild(newButtonText);
@@ -3465,102 +3469,105 @@ chrome.runtime.onInstalled.addListener(function (details) {
 });
 
 function createNotification(tabId, message) {
-  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    var activeTabId = tabs[0].id;
-    chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      function: function () {
-        var tabId = arguments[1];
-        var notification = document.createElement("div");
-        var closeButton = document.createElement("span");
-        closeButton.innerText = "×";
-        
-        Object.assign(closeButton.style, {
-          position: "absolute",
-          right: "5px", 
-          top: "5px",
-          cursor: "pointer",
-          fontSize: "20px"
-        });
- 
-        closeButton.onmouseover = function() {
-          closeButton.style.color = "red";
-        };
- 
-        closeButton.onmouseout = function() {
-          closeButton.style.color = "";
-        };
- 
-        closeButton.onclick = function(event) {
-          event.stopPropagation();
-          document.body.removeChild(notification);
-        };
- 
-        notification.appendChild(closeButton);
- 
-        var messageElement = document.createElement("span");
-        messageElement.innerText = arguments[0];
-        notification.appendChild(messageElement);
- 
-        Object.assign(notification.style, {
-          position: "fixed",
-          bottom: "90px",
-          left: "20px",
-          maxWidth: "200px",
-          padding: "10px 25px 10px 25px",
-          backgroundColor: "yellow",
-          color: "black",
-          textAlign: "center",
-          zIndex: "10000",
-          borderRadius: "10px",
-          fontWeight: "bold",
-          cursor: "pointer",
-          opacity: "0",
-          transition: "opacity 0.5s ease-in-out"
-        });
- 
-        notification.onclick = function() {
-          chrome.runtime.sendMessage({
-            action: "switchTabClick",
-            tabId: tabId
+  if (timerVisibility) {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      var activeTabId = tabs[0].id;
+      chrome.scripting.executeScript({
+        target: { tabId: activeTabId },
+        function: function () {
+          var tabId = arguments[1];
+          var notification = document.createElement("div");
+          var closeButton = document.createElement("span");
+          closeButton.innerText = "×";
+          
+          Object.assign(closeButton.style, {
+            position: "absolute",
+            right: "5px", 
+            top: "0px",
+            cursor: "pointer",
+            fontSize: "20px"
           });
-          document.body.removeChild(notification);
-        };
- 
-        document.body.appendChild(notification);
-        
-        setTimeout(function() {
-          notification.style.opacity = "1";
-        }, 100);
- 
-        var timeoutId = setTimeout(function() {
-          notification.style.opacity = "0";
+  
+          closeButton.onmouseover = function() {
+            closeButton.style.color = "red";
+          };
+  
+          closeButton.onmouseout = function() {
+            closeButton.style.color = "";
+          };
+  
+          closeButton.onclick = function(event) {
+            event.stopPropagation();
+            document.body.removeChild(notification);
+          };
+  
+          notification.appendChild(closeButton);
+  
+          var messageElement = document.createElement("span");
+          messageElement.innerText = arguments[0];
+          notification.appendChild(messageElement);
+  
+          Object.assign(notification.style, {
+            position: "fixed",
+            bottom: "95px",
+            left: "10px",
+            maxWidth: "150px",
+            padding: "8px 12px",
+            backgroundColor: "yellow",
+            color: "black",
+            textAlign: "center",
+            zIndex: "10000",
+            borderRadius: "10px",
+            fontWeight: "bold",
+            cursor: "pointer",
+            opacity: "0",
+            fontSize: "14px",
+            transition: "opacity 0.5s ease-in-out"
+          });
+  
+          notification.onclick = function() {
+            chrome.runtime.sendMessage({
+              action: "switchTabClick",
+              tabId: tabId
+            });
+            document.body.removeChild(notification);
+          };
+  
+          document.body.appendChild(notification);
+          
           setTimeout(function() {
-            if (document.body.contains(notification)) {
-              document.body.removeChild(notification);
-            }
-          }, 500);
-        }, 5000);
- 
-        notification.onmouseover = function() {
-          clearTimeout(timeoutId);
-        };
- 
-        notification.onmouseout = function() {
-          timeoutId = setTimeout(function() {
+            notification.style.opacity = "1";
+          }, 100);
+  
+          var timeoutId = setTimeout(function() {
             notification.style.opacity = "0";
             setTimeout(function() {
               if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
               }
             }, 500);
-          }, 1000);
-        };
-      },
-      args: [message, tabId]
+          }, 5000);
+  
+          notification.onmouseover = function() {
+            clearTimeout(timeoutId);
+          };
+  
+          notification.onmouseout = function() {
+            timeoutId = setTimeout(function() {
+              notification.style.opacity = "0";
+              setTimeout(function() {
+                if (document.body.contains(notification)) {
+                  document.body.removeChild(notification);
+                }
+              }, 500);
+            }, 1000);
+          };
+        },
+        args: [message, tabId]
+      });
     });
-  });
- }
+  }
+}
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "loading") {
