@@ -1,28 +1,8 @@
-Cкачайте последнюю версию python, node js, java
+Cкачайте и установите Python, Node.js, Java
 
-Заполнить .env файл своими данными с сайта my.telegram.org (api development tools - create app) 
+Заполните .env файл своими данными с сайта my.telegram.org (api development tools -> create app),
+добавьте путь к папке со скриншотами после FOLDER=
 
-Для установки на windows: 
+Для установки открыть терминал в текущей папке и ввести команду:
 
--> install-windows.bat
-
-Для установки на mac os:
-
-В файле update.sh заполнить путь в пустых кавычках на полный путь к файлу в папке templates\output.html
-Для этого зайдите в папку, потом нажмите на свойства этого файла, после чего скопируйте путь и в конец добавьте \output.html
-
-Правой кнопкой мыши по папке crop -> Открыть папку в терминале
-
-sudo npm i -g browser-sync
-
-sudo xattr -r -d com.apple.quarantine update.sh
-
-sudo chmod +x update.sh
-
-sudo xattr -r -d com.apple.quarantine ffmpeg
-
-chmod +x ffmpeg
-
-xattr -d com.apple.quarantine ./crop
-
-sudo chmod +x crop
+node install.js

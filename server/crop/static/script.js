@@ -206,17 +206,12 @@ function sendFiles(receiver_id, client_id, event) {
         element.classList.add('show');
         element.style.animation = 'slide-up 0.5s forwards';
         var copyButton = document.getElementById('send-button');
-        copyButton.classList.add('animate');
 
         if (!copyButton.dataset.clickCount || copyButton.dataset.clickCount > 0) {
             copyButton.style.backgroundColor = '#D0FF6B ';
             copyButton.dataset.clickCount = 1;
         } 
-
-        setTimeout(function() {
-            copyButton.classList.remove('animate');
-        }, 200);
-
+        
         setTimeout(function() {
             element.classList.remove('show');
             element.style.animation = 'none';
